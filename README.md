@@ -39,6 +39,7 @@ bytes around it.
 | `schnorrsig`     | BIP340 sign and verify, x-only parsing, taproot tweak check                            |
 | `recovery`       | recoverable ECDSA signing and public key recovery                                      |
 | `keys`           | seckey and pubkey tweaks, negation, combination, sorting, taproot keypair tweaks, ECDH |
+| `musig`          | MuSig2 key aggregation and tweaks, nonces, partial signatures and their aggregation    |
 | `ellswift`       | BIP324 ElligatorSwift encoding and decoding, x-only ECDH                               |
 | `field`          | field arithmetic via a register machine (internal API)                                 |
 | `scalar`         | scalar arithmetic via a register machine (internal API)                                |

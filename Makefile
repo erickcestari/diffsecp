@@ -11,7 +11,7 @@ SMOKE_RUNS  ?= 4000
 DOCKER      ?= docker
 CROSS_IMAGE ?= diffsecp-cross
 
-TARGETS := ecdsa schnorrsig field scalar group keys ellswift recovery
+TARGETS := ecdsa schnorrsig field scalar group keys ellswift recovery musig
 
 # libsecp's own build defaults (CMake and autotools): -O2 from RelWithDebInfo,
 # ECMULT_WINDOW_SIZE=15 and ECMULT_GEN_KB=86. Its x86_64 asm is also on by
