@@ -62,9 +62,14 @@ misusing internal APIs. `guide_int64` does the same on the int64 arithmetic
 fewer executions per second. The others cover release builds with GCC and clang,
 optimizer extremes (`-O0`, `-Os`, `-O3 -march=native`), each arithmetic
 implementation (int128, int128_struct, int64) and the smallest tables.
+`baseline` builds `external/secp256k1-baseline`, libsecp v0.8.0, the oldest
+release that builds every target, so any behavior change master makes since
+then shows up as a divergence. It stays put: move it only when a target needs a
+newer API, and only to a commit that shows no divergence.
 
 To add one, append its name to `VARIANTS` and set `<name>_CC` and
-`<name>_CFLAGS`. `GCC` and `CLANG` pick the compilers of all variants: CI uses
+`<name>_CFLAGS`, and optionally `<name>_SECP` for another libsecp tree.
+`GCC` and `CLANG` pick the compilers of all variants: CI uses
 `GCC=gcc-14 CLANG=clang-19`, the versions Guix builds releases with, and a local
 build uses the system ones. Single variants can be overridden too, for example
 `make gcc_release_CC=gcc-15`.
@@ -126,3 +131,8 @@ straight into `corpus/`, keeps only those that add coverage.
 `.github/workflows/ci.yml` runs `make check` and `make docker-cross` on pushes
 to master and on pull requests, so every change replays the corpus. `make check`
 runs in Debian trixie with GCC 14 and clang 19.
+
+`.github/workflows/bump-secp256k1.yml` moves `external/secp256k1` to upstream
+master daily, runs CI on the bump and fast-forwards master to it only if CI
+passes. A failed run leaves the bump on the `bump-secp256k1` branch: upstream
+broke a target or changed behavior against the baseline.

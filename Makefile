@@ -58,7 +58,8 @@ all: $(FUZZERS)
 # diffsecp_variant_<name> as the only global definition. A new libsecp global
 # outside these patterns shows up as a duplicate symbol at link time.
 define VARIANT_RULE
-$(1)_COMPILE = $$($(1)_CC) $$(COMMON_CFLAGS) $$($(1)_CFLAGS) -I$$(SECP) -I$$(SECP)/include \
+$(1)_SECP ?= $$(SECP)
+$(1)_COMPILE = $$($(1)_CC) $$(COMMON_CFLAGS) $$($(1)_CFLAGS) -I$$($(1)_SECP) -I$$($(1)_SECP)/include \
                -DDIFFSECP_VARIANT=$(1)
 
 $(BUILD)/variants/$(1).flags: FORCE | $(BUILD)/variants
