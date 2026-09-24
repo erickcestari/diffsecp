@@ -1,13 +1,17 @@
 # diffsecp
 
 Differential fuzzing of [libsecp256k1](https://github.com/bitcoin-core/secp256k1)
-across builds: compilers, optimization levels and library configurations. Each
-input runs through every build in one process, and any difference in results
-aborts with a reproducer.
+across builds, architectures and library versions. On x86_64, each input runs
+through every build in one process (compilers, optimization levels, arithmetic
+implementations, table sizes, and libsecp's last release next to master), and
+any difference in results aborts with a reproducer. The corpus the fuzzer grows
+is then replayed on 32-bit ARM, aarch64, riscv64, ppc64, ppc64le and Windows,
+and every result is compared with x86_64.
 
-Bitcoin nodes run libsecp256k1 built by different compilers: Guix release builds
-use GCC for Linux and Windows and clang for macOS, and distros use whatever they
-ship. Builds that disagree on whether a signature is valid split the chain.
+Bitcoin nodes run libsecp256k1 built by different compilers for different CPUs:
+Guix release builds use GCC for Linux and Windows and clang for macOS, and
+distros use whatever they ship. Builds that disagree on whether a signature is
+valid split the chain.
 libsecp256k1's own tests check known answers; diffsecp checks that builds
 agree on inputs nobody wrote down.
 
