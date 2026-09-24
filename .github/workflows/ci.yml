@@ -8,14 +8,18 @@ on:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    # Debian trixie ships GCC 14 and clang 19, the versions Guix builds releases with.
+    container: debian:trixie
     steps:
+      - name: Install toolchain
+        run: >-
+          apt-get update && apt-get install -y --no-install-recommends
+          git ca-certificates make libc6-dev gcc-14 clang-19 libclang-rt-19-dev
       - uses: actions/checkout@v5
         with:
           submodules: true
-      - name: Install clang with libFuzzer
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
       - name: Selftest, corpus replay and short run of every target
-        run: make -j"$(nproc)" check
+        run: make -j"$(nproc)" check GCC=gcc-14 CLANG=clang-19
 
   cross:
     runs-on: ubuntu-24.04
