@@ -13,7 +13,7 @@
 # it, and the linker drops the tables of all but one sanitized variant.
 
 VARIANTS := guide guide_int64 \
-            gcc_release clang_release \
+            gcc_release clang_release baseline \
             gcc_O0 clang_Os \
             gcc_O3_native clang_O3_native \
             gcc_O2_int64 clang_O2_int64 gcc_O2_int128_struct \
@@ -44,6 +44,14 @@ gcc_release_CFLAGS := $(RELEASE_CFLAGS)
 
 clang_release_CC     := $(CLANG)
 clang_release_CFLAGS := $(RELEASE_CFLAGS)
+
+# libsecp v0.8.0, the oldest release that builds every target, built like
+# gcc_release: any behavior change SECP makes since then shows up as a
+# divergence. It stays put; move it only when a target needs a newer API, and
+# only to a commit that shows no divergence.
+baseline_CC     := $(GCC)
+baseline_CFLAGS := $(RELEASE_CFLAGS)
+baseline_SECP   := external/secp256k1-baseline
 
 # Optimizer extremes. -O0 is the closest thing to the source's plain semantics;
 # -Os changes inlining decisions.

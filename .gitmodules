@@ -1,3 +1,6 @@
 [submodule "external/secp256k1"]
 	path = external/secp256k1
 	url = https://github.com/bitcoin-core/secp256k1
+[submodule "external/secp256k1-baseline"]
+	path = external/secp256k1-baseline
+	url = https://github.com/bitcoin-core/secp256k1

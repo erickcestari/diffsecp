@@ -62,6 +62,10 @@ misusing internal APIs. `guide_int64` does the same on the int64 arithmetic
 fewer executions per second. The others cover release builds with GCC and clang,
 optimizer extremes (`-O0`, `-Os`, `-O3 -march=native`), each arithmetic
 implementation (int128, int128_struct, int64) and the smallest tables.
+`baseline` builds `external/secp256k1-baseline`, libsecp v0.8.0, the oldest
+release that builds every target, so any behavior change master makes since
+then shows up as a divergence. It stays put: move it only when a target needs a
+newer API, and only to a commit that shows no divergence.
 
 To add one, append its name to `VARIANTS` and set `<name>_CC` and
 `<name>_CFLAGS`, and optionally `<name>_SECP` for another libsecp tree.
