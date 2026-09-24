@@ -105,12 +105,14 @@ $(TARGETS:%=selftest-%): selftest-%: $(BUILD)/selftest/fuzz_%
 	fi; \
 	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
 
-# A missing corpus is seeded with a short fuzzing run. The fuzzer is built from
-# the recipe, not as a prerequisite, so an existing corpus needs no clang.
-$(CORPUS)/%:
-	$(MAKE) --no-print-directory $(BUILD)/fuzz_$*
+# A missing corpus is seeded with a short fuzzing run. Only missing ones depend
+# on their fuzzer, so an existing corpus needs no clang, and the fuzzers are
+# built once in this make rather than racing in one sub-make per target.
+MISSING_CORPORA := $(filter-out $(wildcard $(TARGETS:%=$(CORPUS)/%)),$(TARGETS:%=$(CORPUS)/%))
+
+$(MISSING_CORPORA): $(CORPUS)/%: $(BUILD)/fuzz_%
 	mkdir -p $@
-	$(BUILD)/fuzz_$* -runs=$(SMOKE_RUNS) -seed=1 $@ > $(BUILD)/seed_$*.log 2>&1
+	$< -runs=$(SMOKE_RUNS) -seed=1 $@ > $(BUILD)/seed_$*.log 2>&1
 
 # One static replay binary per architecture, and the digest of every corpus
 # input on it. Digests are always regenerated since the corpus changes freely.

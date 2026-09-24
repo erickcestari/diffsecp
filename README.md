@@ -96,3 +96,8 @@ report false divergences.
 that flips the last transcript byte and expects every fuzzer to report it, so
 it fails if per-variant flags stop reaching the compiler or the comparison
 misses a byte or a variant. `make check` includes it.
+
+## CI
+
+`.github/workflows/ci.yml` runs `make check` and `make docker-cross` on pushes
+to master and on pull requests.
