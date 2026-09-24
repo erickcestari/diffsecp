@@ -1,0 +1,99 @@
+name: Fuzz
+
+# Fuzzes every target from the corpus on one runner, adds the inputs that raise
+# coverage to the corpus once CI passes on them, and uploads a coverage report.
+# A divergence fails the run and uploads its reproducer. Daily, finishing
+# before the secp256k1 bump so the two never race to fast-forward master.
+on:
+  schedule:
+    - cron: '41 1 * * *'
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: Minutes to fuzz every target for
+        default: '120'
+
+permissions:
+  contents: write
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    # The compilers and LLVM tools CI builds with; make reads them from the environment.
+    container: debian:trixie
+    env:
+      GCC: gcc-14
+      CLANG: clang-19
+      LLVM_PROFDATA: llvm-profdata-19
+      LLVM_COV: llvm-cov-19
+    outputs:
+      changed: ${{ steps.corpus.outputs.changed }}
+    steps:
+      - name: Install toolchain
+        run: >-
+          apt-get update && apt-get install -y --no-install-recommends
+          git ca-certificates make libc6-dev gcc-14 clang-19 libclang-rt-19-dev llvm-19
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - name: Build
+        run: make -j"$(nproc)" all
+      - name: Fuzz every target at once
+        env:
+          MINUTES: ${{ inputs.minutes || '120' }}
+        run: make -k -j fuzz FUZZ_TIME=$((60 * MINUTES))
+      - name: Upload reproducers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproducers
+          path: |
+            build/crashes
+            build/fuzz-*.log
+      - name: Keep the new inputs that raise coverage
+        if: ${{ !cancelled() }}
+        run: make -j"$(nproc)" merge
+      - name: Commit to the fuzz-corpus branch
+        id: corpus
+        if: ${{ !cancelled() }}
+        run: |
+          git add corpus
+          if git diff --cached --quiet; then
+            echo changed=false >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -q -m "corpus: add inputs from daily fuzzing" -m "$(git diff --cached --stat HEAD | tail -n 1)"
+          git push -f origin HEAD:refs/heads/fuzz-corpus
+          echo changed=true >> "$GITHUB_OUTPUT"
+      - name: Coverage report
+        if: ${{ !cancelled() }}
+        run: make coverage
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: coverage
+          path: |
+            build/coverage/html
+            build/coverage/report.txt
+
+  ci:
+    needs: fuzz
+    if: ${{ !cancelled() && needs.fuzz.outputs.changed == 'true' }}
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: fuzz-corpus
+
+  merge:
+    needs: ci
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Fast-forward master to the corpus update
+        run: |
+          git fetch origin fuzz-corpus
+          git merge --ff-only FETCH_HEAD
+          git push origin HEAD:master :fuzz-corpus
