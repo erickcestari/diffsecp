@@ -12,8 +12,16 @@ CLANG       ?= clang
 FUZZ_CC     ?= $(CLANG)
 OBJCOPY     ?= objcopy
 SMOKE_RUNS  ?= 1000
+# Seconds per target for `make fuzz`, and extra libFuzzer flags such as -fork=N.
+FUZZ_TIME   ?= 600
+FUZZ_ARGS   ?=
 DOCKER      ?= docker
 CROSS_IMAGE ?= diffsecp-cross
+# `make coverage` builds with this variant's flags minus its sanitizers, and
+# needs the LLVM tools of CLANG's version.
+COVERAGE_VARIANT ?= guide
+LLVM_PROFDATA    ?= llvm-profdata
+LLVM_COV         ?= llvm-cov
 
 TARGETS := ecdsa schnorrsig field scalar group keys ellswift recovery musig silentpayments
 
@@ -46,7 +54,8 @@ VARIANTS_H          := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS),X($
 SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) selftest,X($(v)))
 
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
-        cross cross-image docker-cross clean FORCE
+        fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
+        coverage readme-coverage cross cross-image docker-cross clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -121,6 +130,70 @@ $(MISSING_CORPORA): $(CORPUS)/%: $(BUILD)/fuzz_%
 	mkdir -p $@
 	$< -runs=$(SMOKE_RUNS) -seed=1 $@ > $(BUILD)/seed_$*.log 2>&1
 
+# Long runs from the corpus; `make -j fuzz` runs every target at once. New
+# inputs land in $(BUILD)/new/<target> and reproducers in $(BUILD)/crashes.
+fuzz: $(TARGETS:%=fuzz-%)
+
+$(TARGETS:%=fuzz-%): fuzz-%: $(BUILD)/fuzz_% | $(CORPUS)/%
+	@log=$(BUILD)/$@.log; mkdir -p $(BUILD)/new/$* $(BUILD)/crashes; \
+	if ! $< -max_total_time=$(FUZZ_TIME) -artifact_prefix=$(BUILD)/crashes/$*- $(FUZZ_ARGS) \
+	     $(BUILD)/new/$* $(CORPUS)/$* > $$log 2>&1; then \
+		tail -n 40 $$log; echo "FAIL $*: see $$log and $(BUILD)/crashes"; exit 1; \
+	fi; \
+	echo "ok   $*: $$(ls $(BUILD)/new/$* | wc -l) new inputs, $$(grep -E '^#[0-9]+' $$log | tail -n 1)"
+
+# Adds the new inputs that raise coverage to the corpus. Merging runs each input
+# again and skips any that crash, so a divergence never lands in the corpus.
+merge: $(TARGETS:%=merge-%)
+
+$(TARGETS:%=merge-%): merge-%: $(BUILD)/fuzz_% | $(CORPUS)/%
+	@log=$(BUILD)/$@.log; before=$$(ls $(CORPUS)/$* | wc -l); mkdir -p $(BUILD)/new/$*; \
+	$< -merge=1 $(CORPUS)/$* $(BUILD)/new/$* > $$log 2>&1 || { cat $$log; exit 1; }; \
+	echo "ok   $*: $$(( $$(ls $(CORPUS)/$* | wc -l) - before )) inputs added"
+
+# Rebuilds each corpus from scratch with only the inputs its coverage needs, for
+# when a target or libsecp changed what the old inputs reach.
+minimize: $(TARGETS:%=minimize-%)
+
+$(TARGETS:%=minimize-%): minimize-%: $(BUILD)/fuzz_% | $(CORPUS)/%
+	@log=$(BUILD)/$@.log; tmp=$(BUILD)/minimize/$*; before=$$(ls $(CORPUS)/$* | wc -l); \
+	rm -rf $$tmp && mkdir -p $$tmp; \
+	$< -merge=1 $$tmp $(CORPUS)/$* > $$log 2>&1 || { cat $$log; exit 1; }; \
+	rm -rf $(CORPUS)/$* && mv $$tmp $(CORPUS)/$*; \
+	echo "ok   $*: $$before -> $$(ls $(CORPUS)/$* | wc -l) inputs"
+
+# Source coverage of the corpus replayed through one variant's flags, without
+# its sanitizers: what the fuzzer reaches. The report goes to $(BUILD)/coverage.
+COVERAGE_COMPILE = $(CLANG) $(COMMON_CFLAGS) $(filter-out $(SANITIZE_CFLAGS),$($(COVERAGE_VARIANT)_CFLAGS)) \
+                   -fprofile-instr-generate -fcoverage-mapping -I$($(COVERAGE_VARIANT)_SECP) \
+                   -I$($(COVERAGE_VARIANT)_SECP)/include -DDIFFSECP_VARIANT=coverage
+
+$(BUILD)/coverage/flags: FORCE | $(BUILD)/coverage
+	@echo '$(COVERAGE_COMPILE)' | cmp -s - $@ || echo '$(COVERAGE_COMPILE)' > $@
+
+$(BUILD)/coverage/%.o: src/%.c $(BUILD)/coverage/flags
+	$(COVERAGE_COMPILE) -MMD -MP -MT $@ -MF $(@:.o=.d) -c $< -o $@
+
+$(BUILD)/coverage/replay: $(BUILD)/coverage/variant.o $(BUILD)/coverage/replay.o
+	$(CLANG) -fprofile-instr-generate $^ -o $@
+
+coverage: $(BUILD)/coverage/replay | $(TARGETS:%=$(CORPUS)/%)
+	@rm -f $(BUILD)/coverage/*.profraw
+	@for t in $(TARGETS); do \
+		find $(CORPUS)/$$t -type f | LLVM_PROFILE_FILE=$(BUILD)/coverage/$$t.profraw $< $$t > /dev/null || exit 1; \
+	done
+	@$(LLVM_PROFDATA) merge -sparse $(BUILD)/coverage/*.profraw -o $(BUILD)/coverage/corpus.profdata
+	@$(LLVM_COV) show $< -instr-profile=$(BUILD)/coverage/corpus.profdata -format=html \
+		-output-dir=$(BUILD)/coverage/html
+	@$(LLVM_COV) report $< -instr-profile=$(BUILD)/coverage/corpus.profdata > $(BUILD)/coverage/report.txt
+	@awk '$$1 == "TOTAL" { print "coverage: " $$10 " of lines, " $$13 " of branches, " $$7 " of functions" }' \
+		$(BUILD)/coverage/report.txt
+	@echo "per file: $(BUILD)/coverage/report.txt, lines: $(BUILD)/coverage/html/index.html"
+
+# Rewrites the coverage table at the bottom of README.md from a fresh report.
+readme-coverage: coverage
+	@ci/readme-coverage.sh $(BUILD)/coverage/report.txt $($(COVERAGE_VARIANT)_SECP) README.md
+
 # One static replay binary per architecture, and the digest of every corpus
 # input on it. Digests are always regenerated since the corpus changes freely.
 define ARCH_RULE
@@ -176,10 +249,10 @@ docker-cross: cross-image | $(TARGETS:%=$(CORPUS)/%)
 		-v $(CURDIR):/src -w /src $(CROSS_IMAGE) \
 		make -j$$(nproc) BUILD=$(BUILD)/docker CORPUS=$(CORPUS) cross
 
-$(BUILD) $(BUILD)/variants $(BUILD)/selftest:
+$(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage:
 	mkdir -p $@
 
 clean:
 	rm -rf $(BUILD)
 
--include $(SELFTEST_OBJS:.o=.d)
+-include $(SELFTEST_OBJS:.o=.d) $(BUILD)/coverage/variant.d $(BUILD)/coverage/replay.d
