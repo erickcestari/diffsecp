@@ -47,7 +47,9 @@ reaching verify paths random bytes almost never hit.
 `variants.mk` lists the builds: a name, a compiler and flags. Every transcript is
 compared against the first variant, `guide`, which is built with coverage, ASan,
 UBSan and libsecp's `VERIFY` checks. It steers the fuzzer and catches the harness
-misusing internal APIs. The others cover release builds with GCC and clang,
+misusing internal APIs. `guide_int64` does the same on the int64 arithmetic
+(10x26 field, 8x32 scalar), which `guide` never runs, at the cost of about 40%
+fewer executions per second. The others cover release builds with GCC and clang,
 optimizer extremes (`-O0`, `-Os`, `-O3 -march=native`), each arithmetic
 implementation (int128, int128_struct, int64) and the smallest tables.
 

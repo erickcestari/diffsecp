@@ -11,7 +11,7 @@
 # and need SANITIZE_CFLAGS: without it ASan puts each global in a comdat named
 # after it, and the linker drops the tables of all but one sanitized variant.
 
-VARIANTS := guide \
+VARIANTS := guide guide_int64 \
             gcc_release clang_release \
             gcc_O0 clang_Os \
             gcc_O3_native clang_O3_native \
@@ -30,6 +30,11 @@ endif
 # also catch the harness calling internals outside their contract.
 guide_CC     := clang
 guide_CFLAGS := -O1 -DVERIFY $(SANITIZE_CFLAGS)
+
+# The same on the int64 arithmetic (10x26 field, 8x32 scalar, 32-bit modinv),
+# which guide never runs, so its branches also get coverage feedback.
+guide_int64_CC     := clang
+guide_int64_CFLAGS := $(guide_CFLAGS) -DUSE_FORCE_WIDEMUL_INT64
 
 # What ships: Guix builds Bitcoin Core with GCC for Linux and Windows and with
 # clang for macOS.
