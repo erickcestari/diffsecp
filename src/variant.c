@@ -36,7 +36,23 @@ static void variant_init(void) {
 #include "targets/field.c"
 #include "targets/scalar.c"
 
+#ifdef DIFFSECP_SELFTEST
+/* A deliberately wrong build for `make selftest`: flipping the last transcript
+ * byte is the smallest divergence the harness must still report. */
+#define DIFFSECP_SELFTEST_WRAP(t) \
+    static size_t selftest_##t(const unsigned char *in, size_t len, unsigned char *out, size_t cap) { \
+        size_t n = target_##t(in, len, out, cap); \
+        if (n > 0) { \
+            out[n - 1] ^= 1; \
+        } \
+        return n; \
+    }
+DIFFSECP_TARGETS(DIFFSECP_SELFTEST_WRAP)
+#define DIFFSECP_INIT(t) .t = selftest_##t,
+#else
 #define DIFFSECP_INIT(t) .t = target_##t,
+#endif
+
 const struct diffsecp_variant DIFFSECP_CAT(diffsecp_variant_, DIFFSECP_VARIANT) = {
     .name = DIFFSECP_STR(DIFFSECP_VARIANT),
     .init = variant_init,

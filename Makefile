@@ -27,13 +27,22 @@ WARNINGS := -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes -Wundef -Wcast
             -Wno-unused-function -Wno-overlength-strings
 COMMON_CFLAGS := -std=c11 -g $(WARNINGS)
 
-VARIANT_OBJS := $(VARIANTS:%=$(BUILD)/variants/%.o)
-FUZZERS      := $(TARGETS:%=$(BUILD)/fuzz_%)
-FUZZ_COMPILE  = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=fuzzer,address,undefined \
-                -fno-sanitize-recover=all -I$(BUILD)
-VARIANTS_H   := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS),X($(v)))
+# The reference build with one transcript byte flipped (src/variant.c). It is
+# linked only into the selftest fuzzers, which must report it as a divergence.
+REFERENCE       := $(firstword $(VARIANTS))
+selftest_CC     := $($(REFERENCE)_CC)
+selftest_CFLAGS := $($(REFERENCE)_CFLAGS) -DDIFFSECP_SELFTEST
 
-.PHONY: all check $(TARGETS:%=check-%) cross cross-image docker-cross clean FORCE
+VARIANT_OBJS  := $(VARIANTS:%=$(BUILD)/variants/%.o)
+SELFTEST_OBJS := $(VARIANT_OBJS) $(BUILD)/variants/selftest.o
+FUZZERS       := $(TARGETS:%=$(BUILD)/fuzz_%)
+FUZZ_COMPILE   = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=fuzzer,address,undefined \
+                 -fno-sanitize-recover=all
+VARIANTS_H          := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS),X($(v)))
+SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) selftest,X($(v)))
+
+.PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
+        cross cross-image docker-cross clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -55,21 +64,27 @@ $(BUILD)/variants/$(1).o: src/variant.c $(BUILD)/variants/$(1).flags
 	$$($(1)_COMPILE) -MMD -MP -MT $$@ -MF $$(@:.o=.d) -c $$< -o $$(@:.o=.raw.o)
 	$$(OBJCOPY) --wildcard -L 'secp256k1_*' -L 'ecdsa_*' -L '__odr_asan_gen_*' $$(@:.o=.raw.o) $$@
 endef
-$(foreach v,$(VARIANTS),$(eval $(call VARIANT_RULE,$(v))))
+$(foreach v,$(VARIANTS) selftest,$(eval $(call VARIANT_RULE,$(v))))
 
 $(BUILD)/variants.h: FORCE | $(BUILD)
 	@echo '$(VARIANTS_H)' | cmp -s - $@ || echo '$(VARIANTS_H)' > $@
+
+$(BUILD)/selftest/variants.h: FORCE | $(BUILD)/selftest
+	@echo '$(SELFTEST_VARIANTS_H)' | cmp -s - $@ || echo '$(SELFTEST_VARIANTS_H)' > $@
 
 $(BUILD)/fuzz.flags: FORCE | $(BUILD)
 	@echo '$(FUZZ_COMPILE)' | cmp -s - $@ || echo '$(FUZZ_COMPILE)' > $@
 
 $(BUILD)/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/variants.h $(BUILD)/fuzz.flags $(VARIANT_OBJS)
-	$(FUZZ_COMPILE) -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) -o $@
+	$(FUZZ_COMPILE) -I$(BUILD) -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) -o $@
+
+$(BUILD)/selftest/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h $(BUILD)/fuzz.flags $(SELFTEST_OBJS)
+	$(FUZZ_COMPILE) -I$(BUILD)/selftest -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) -o $@
 
 # Short run of every target from an empty corpus: catches build breakage,
 # harness contract violations and shallow divergences. The signature targets
 # reach ~96% of their 20k-run coverage by 4k runs. Parallelizes with make -j.
-check: $(TARGETS:%=check-%)
+check: selftest $(TARGETS:%=check-%)
 
 $(TARGETS:%=check-%): check-%: $(BUILD)/fuzz_%
 	@log=$(BUILD)/$@.log; \
@@ -77,6 +92,18 @@ $(TARGETS:%=check-%): check-%: $(BUILD)/fuzz_%
 		cat $$log; echo "FAIL $*"; exit 1; \
 	fi; \
 	echo "ok   $*: $$(tail -n 1 $$log)"
+
+# Proves a divergence is reported: fails if the harness stops comparing every
+# byte of every variant, or if per-variant flags stop reaching the compiler.
+selftest: $(TARGETS:%=selftest-%)
+
+$(TARGETS:%=selftest-%): selftest-%: $(BUILD)/selftest/fuzz_%
+	@log=$(BUILD)/$@.log; \
+	if $< -runs=$(SMOKE_RUNS) -seed=1 -artifact_prefix=$(BUILD)/selftest/ > $$log 2>&1 || \
+	   ! grep -q 'diverges between $(REFERENCE) and selftest' $$log; then \
+		cat $$log; echo "FAIL $@: divergence from selftest not reported"; exit 1; \
+	fi; \
+	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
 
 # A missing corpus is seeded with a short fuzzing run. The fuzzer is built from
 # the recipe, not as a prerequisite, so an existing corpus needs no clang.
@@ -140,10 +167,10 @@ docker-cross: cross-image | $(TARGETS:%=$(CORPUS)/%)
 		-v $(CURDIR):/src -w /src $(CROSS_IMAGE) \
 		make -j$$(nproc) BUILD=$(BUILD)/docker CORPUS=$(CORPUS) cross
 
-$(BUILD) $(BUILD)/variants:
+$(BUILD) $(BUILD)/variants $(BUILD)/selftest:
 	mkdir -p $@
 
 clean:
 	rm -rf $(BUILD)
 
--include $(VARIANT_OBJS:.o=.d)
+-include $(SELFTEST_OBJS:.o=.d)
