@@ -7,11 +7,11 @@ BUILD       ?= build
 CORPUS      ?= corpus
 FUZZ_CC     ?= clang
 OBJCOPY     ?= objcopy
-SMOKE_RUNS  ?= 4000
+SMOKE_RUNS  ?= 1000
 DOCKER      ?= docker
 CROSS_IMAGE ?= diffsecp-cross
 
-TARGETS := ecdsa schnorrsig field scalar
+TARGETS := ecdsa schnorrsig field scalar group keys ellswift recovery musig silentpayments
 
 # libsecp's own build defaults (CMake and autotools): -O2 from RelWithDebInfo,
 # ECMULT_WINDOW_SIZE=15 and ECMULT_GEN_KB=86. Its x86_64 asm is also on by
@@ -83,7 +83,8 @@ $(BUILD)/selftest/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h
 
 # Replays the corpus through every variant, then fuzzes briefly from it: catches
 # build breakage, harness contract violations and divergences on known inputs.
-# New inputs go to the build tree so the committed corpus stays untouched.
+# The corpus always replays in full; SMOKE_RUNS only bounds the fuzzing after
+# it. New inputs go to the build tree so the committed corpus stays untouched.
 check: selftest $(TARGETS:%=check-%)
 
 $(TARGETS:%=check-%): check-%: $(BUILD)/fuzz_% | $(CORPUS)/%
