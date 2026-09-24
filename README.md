@@ -36,7 +36,7 @@ bytes around it.
 | Target           | Covers                                                                                 |
 |------------------|----------------------------------------------------------------------------------------|
 | `ecdsa`          | pubkey parsing, strict and lax DER, low-S normalization, sign, verify                  |
-| `schnorrsig`     | BIP340 sign and verify, x-only parsing, taproot tweak check                            |
+| `schnorrsig`     | BIP340 sign and verify with any message length, x-only parsing, taproot tweak check    |
 | `recovery`       | recoverable ECDSA signing and public key recovery                                      |
 | `keys`           | seckey and pubkey tweaks, negation, combination, sorting, taproot keypair tweaks, ECDH |
 | `musig`          | MuSig2 key aggregation and tweaks, nonces, partial signatures and their aggregation    |

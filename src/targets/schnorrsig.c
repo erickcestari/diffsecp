@@ -3,7 +3,8 @@
  * mutated.
  *
  * Input: mode, msg[32], then seckey[32] + aux[32] or raw xonly_pk[32] and sig64,
- * then mutations, then tweak[32] and a mutation of the tweaked key. */
+ * then mutations, then tweak[32] and a mutation of the tweaked key, then a
+ * variable-length message, nonce[32] and a signature mutation. */
 
 static void schnorrsig_record_tweak(struct transcript *t, struct reader *r,
                                     const secp256k1_xonly_pubkey *internal) {
@@ -37,14 +38,68 @@ static void schnorrsig_record_tweak(struct transcript *t, struct reader *r,
     transcript_int(t, secp256k1_xonly_pubkey_tweak_add_check(variant_ctx, tweaked32, parity, internal, tweak));
 }
 
+/* Returns the fuzzed nonce in data, so signing reaches a zero nonce and nonces
+ * above the group order. */
+static int schnorrsig_fixed_nonce(unsigned char *nonce32, const unsigned char *msg, size_t msglen,
+                                  const unsigned char *key32, const unsigned char *xonly_pk32,
+                                  const unsigned char *algo, size_t algolen, void *data) {
+    (void)msg;
+    (void)msglen;
+    (void)key32;
+    (void)xonly_pk32;
+    (void)algo;
+    (void)algolen;
+    memcpy(nonce32, data, 32);
+    return 1;
+}
+
+/* BIP340 takes messages of any length, which only sign_custom and verify
+ * accept. pk is the parsed, possibly mutated key; signer and keypair are set
+ * when the input signed. */
+static void schnorrsig_record_custom(struct transcript *t, struct reader *r, unsigned int mode,
+                                     const unsigned char *sig64, const secp256k1_xonly_pubkey *pk,
+                                     const secp256k1_keypair *keypair, const secp256k1_xonly_pubkey *signer) {
+    secp256k1_schnorrsig_extraparams extraparams = SECP256K1_SCHNORRSIG_EXTRAPARAMS_INIT;
+    unsigned char msg[255], nonce[32], sig[64];
+    size_t msglen;
+    unsigned int pos, mask;
+    int ok;
+
+    msglen = reader_u8(r);
+    reader_take(r, msg, msglen);
+    reader_take(r, nonce, sizeof(nonce));
+    pos = reader_u8(r);
+    mask = reader_u8(r);
+
+    if (pk != NULL) {
+        transcript_int(t, secp256k1_schnorrsig_verify(variant_ctx, sig64, msg, msglen, pk));
+    }
+    if (keypair == NULL) {
+        return;
+    }
+    /* Mode bit 2 signs with the fuzzed nonce, otherwise the BIP340 nonce
+     * function takes it as aux_rand when bit 1 is set. */
+    if (mode & 4) {
+        extraparams.noncefp = schnorrsig_fixed_nonce;
+    }
+    extraparams.ndata = (mode & 6) ? nonce : NULL;
+    ok = secp256k1_schnorrsig_sign_custom(variant_ctx, sig, msg, msglen, keypair, &extraparams);
+    transcript_int(t, ok);
+    if (ok) {
+        transcript_put(t, sig, sizeof(sig));
+        sig[pos % sizeof(sig)] ^= (unsigned char)mask;
+        transcript_int(t, secp256k1_schnorrsig_verify(variant_ctx, sig, msg, msglen, signer));
+    }
+}
+
 static size_t target_schnorrsig(const unsigned char *in, size_t len, unsigned char *out, size_t cap) {
     struct reader r = {in, len};
     struct transcript t = {out, cap, 0};
     unsigned char msg[32], seckey[32], aux[32], pk32[32], sig64[64];
     secp256k1_keypair keypair;
-    secp256k1_xonly_pubkey pk;
+    secp256k1_xonly_pubkey pk, signer;
     unsigned int mode, nmut, i;
-    int ok, parity;
+    int ok, parity, signed_ok = 0;
 
     mode = reader_u8(&r);
     reader_take(&r, msg, sizeof(msg));
@@ -57,8 +112,9 @@ static size_t target_schnorrsig(const unsigned char *in, size_t len, unsigned ch
         ok = secp256k1_keypair_create(variant_ctx, &keypair, seckey);
         transcript_int(&t, ok);
         if (ok) {
-            secp256k1_keypair_xonly_pub(variant_ctx, &pk, &parity, &keypair);
-            secp256k1_xonly_pubkey_serialize(variant_ctx, pk32, &pk);
+            signed_ok = 1;
+            secp256k1_keypair_xonly_pub(variant_ctx, &signer, &parity, &keypair);
+            secp256k1_xonly_pubkey_serialize(variant_ctx, pk32, &signer);
             transcript_int(&t, parity);
             transcript_put(&t, pk32, sizeof(pk32));
             ok = secp256k1_schnorrsig_sign32(variant_ctx, sig64, msg, &keypair, (mode & 2) ? aux : NULL);
@@ -87,6 +143,7 @@ static size_t target_schnorrsig(const unsigned char *in, size_t len, unsigned ch
         transcript_int(&t, secp256k1_schnorrsig_verify(variant_ctx, sig64, msg, sizeof(msg), &pk));
         schnorrsig_record_tweak(&t, &r, &pk);
     }
+    schnorrsig_record_custom(&t, &r, mode, sig64, ok ? &pk : NULL, signed_ok ? &keypair : NULL, &signer);
 
     return t.len;
 }
