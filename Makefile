@@ -81,14 +81,15 @@ $(BUILD)/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/variants.h $(BUILD)/fuzz.fla
 $(BUILD)/selftest/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h $(BUILD)/fuzz.flags $(SELFTEST_OBJS)
 	$(FUZZ_COMPILE) -I$(BUILD)/selftest -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) -o $@
 
-# Short run of every target from an empty corpus: catches build breakage,
-# harness contract violations and shallow divergences. The signature targets
-# reach ~96% of their 20k-run coverage by 4k runs. Parallelizes with make -j.
+# Replays the corpus through every variant, then fuzzes briefly from it: catches
+# build breakage, harness contract violations and divergences on known inputs.
+# New inputs go to the build tree so the committed corpus stays untouched.
 check: selftest $(TARGETS:%=check-%)
 
-$(TARGETS:%=check-%): check-%: $(BUILD)/fuzz_%
-	@log=$(BUILD)/$@.log; \
-	if ! $< -runs=$(SMOKE_RUNS) -seed=1 > $$log 2>&1; then \
+$(TARGETS:%=check-%): check-%: $(BUILD)/fuzz_% | $(CORPUS)/%
+	@log=$(BUILD)/$@.log; new=$(BUILD)/$@.new; \
+	rm -rf $$new && mkdir -p $$new; \
+	if ! $< -runs=$(SMOKE_RUNS) -seed=1 $$new $(CORPUS)/$* > $$log 2>&1; then \
 		cat $$log; echo "FAIL $*"; exit 1; \
 	fi; \
 	echo "ok   $*: $$(tail -n 1 $$log)"
