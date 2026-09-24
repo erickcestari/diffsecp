@@ -152,3 +152,47 @@ broke a target or changed behavior against the baseline.
 inputs that raise coverage once CI passes on them, and uploads a coverage
 report. A divergence fails the run and uploads its reproducer.
 
+## Coverage
+
+What the corpus reaches in libsecp, replayed through `guide`'s configuration by
+`make coverage`. The daily fuzzing workflow refreshes it with
+`make readme-coverage`, using clang 19: branch counts differ between LLVM
+versions.
+
+<!-- coverage:begin -->
+
+libsecp `b63c6afb9924`: 85.99% of lines, 59.03% of branches, 88.66% of functions.
+
+| File | Lines | Branches | Functions |
+|------|------:|---------:|----------:|
+| `contrib/lax_der_parsing.c` | 100.00% | 100.00% | 100.00% |
+| `src/assumptions.h` | 0.00% | - | 0.00% |
+| `src/ecdsa_impl.h` | 79.69% | 63.46% | 100.00% |
+| `src/eckey_impl.h` | 93.10% | 75.00% | 100.00% |
+| `src/ecmult_const_impl.h` | 100.00% | 74.14% | 100.00% |
+| `src/ecmult_gen_impl.h` | 94.92% | 78.12% | 85.71% |
+| `src/ecmult_impl.h` | 41.10% | 32.69% | 44.00% |
+| `src/field_5x52_impl.h` | 97.85% | 66.67% | 96.67% |
+| `src/field_5x52_int128_impl.h` | 100.00% | 50.00% | 100.00% |
+| `src/field_impl.h` | 96.61% | 66.07% | 96.77% |
+| `src/group_impl.h` | 96.41% | 71.47% | 95.74% |
+| `src/hash_impl.h` | 79.31% | 63.04% | 83.33% |
+| `src/hsort_impl.h` | 94.55% | 76.92% | 100.00% |
+| `src/int128_native_impl.h` | 91.18% | 60.71% | 89.47% |
+| `src/modinv64_impl.h` | 99.18% | 62.24% | 100.00% |
+| `src/modules/ecdh/main_impl.h` | 93.62% | 58.33% | 66.67% |
+| `src/modules/ellswift/main_impl.h` | 95.29% | 61.18% | 88.89% |
+| `src/modules/extrakeys/main_impl.h` | 91.87% | 57.94% | 100.00% |
+| `src/modules/musig/keyagg_impl.h` | 92.39% | 62.16% | 100.00% |
+| `src/modules/musig/session_impl.h` | 92.09% | 63.67% | 100.00% |
+| `src/modules/recovery/main_impl.h` | 96.00% | 60.61% | 100.00% |
+| `src/modules/schnorrsig/main_impl.h` | 93.64% | 64.06% | 90.00% |
+| `src/modules/silentpayments/main_impl.h` | 87.60% | 65.95% | 100.00% |
+| `src/scalar_4x64_impl.h` | 100.00% | 52.74% | 100.00% |
+| `src/scalar_impl.h` | 100.00% | 59.09% | 100.00% |
+| `src/scratch_impl.h` | 0.00% | 0.00% | 0.00% |
+| `src/secp256k1.c` | 78.16% | 47.93% | 76.00% |
+| `src/selftest.h` | 83.33% | 33.33% | 100.00% |
+| `src/util.h` | 62.42% | 70.00% | 65.00% |
+
+<!-- coverage:end -->

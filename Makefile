@@ -55,7 +55,7 @@ SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) sel
 
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
         fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
-        coverage cross cross-image docker-cross clean FORCE
+        coverage readme-coverage cross cross-image docker-cross clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -189,6 +189,10 @@ coverage: $(BUILD)/coverage/replay | $(TARGETS:%=$(CORPUS)/%)
 	@awk '$$1 == "TOTAL" { print "coverage: " $$10 " of lines, " $$13 " of branches, " $$7 " of functions" }' \
 		$(BUILD)/coverage/report.txt
 	@echo "per file: $(BUILD)/coverage/report.txt, lines: $(BUILD)/coverage/html/index.html"
+
+# Rewrites the coverage table at the bottom of README.md from a fresh report.
+readme-coverage: coverage
+	@ci/readme-coverage.sh $(BUILD)/coverage/report.txt $($(COVERAGE_VARIANT)_SECP) README.md
 
 # One static replay binary per architecture, and the digest of every corpus
 # input on it. Digests are always regenerated since the corpus changes freely.
