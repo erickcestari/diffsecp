@@ -5,15 +5,15 @@
 # needs no sysroot.
 #
 # The list mirrors the Guix release targets that run on Linux or Wine, built
-# with the compiler Guix uses for them, GCC 14. Compilers are named by version
-# so a toolchain bump in ci/Dockerfile fails instead of silently testing another
-# compiler. Each is built with libsecp's defaults, so the widemul choice is
-# automatic: 32-bit ARM gets the int64 code. macOS is missing because it needs
-# Apple's SDK and has no user-mode emulator.
+# with the compilers Guix uses: GCC 14, and clang 19 for macOS. Compilers are
+# named by version so a toolchain bump in ci/Dockerfile fails instead of
+# silently testing another compiler. Each is built with libsecp's defaults, so
+# the widemul choice is automatic: 32-bit ARM gets the int64 code.
 
 CROSS_GCC_VERSION ?= 14
+CROSS_CLANG       ?= clang-19
 
-ARCHES := x86_64 arm aarch64 riscv64 ppc64 win64
+ARCHES := x86_64 arm aarch64 aarch64_clang riscv64 ppc64 win64
 
 x86_64_CC     := gcc-$(CROSS_GCC_VERSION)
 x86_64_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS) $(LIBSECP_ASM_X86_64)
@@ -27,6 +27,12 @@ arm_RUN    := qemu-arm
 aarch64_CC     := aarch64-linux-gnu-gcc-$(CROSS_GCC_VERSION)
 aarch64_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS)
 aarch64_RUN    := qemu-aarch64
+
+# Stands in for arm64 macOS, which needs Apple's SDK and has no user-mode
+# emulator: the compiler and CPU of its release builds, targeting Linux.
+aarch64_clang_CC     := $(CROSS_CLANG) --target=aarch64-linux-gnu -mcpu=apple-m1
+aarch64_clang_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS)
+aarch64_clang_RUN    := qemu-aarch64
 
 riscv64_CC     := riscv64-linux-gnu-gcc-$(CROSS_GCC_VERSION)
 riscv64_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS)

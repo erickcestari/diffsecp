@@ -14,8 +14,8 @@ agree on inputs nobody wrote down.
 ## Requirements
 
 clang with libFuzzer, gcc, GNU make and binutils (`objcopy`). Docker for
-cross-architecture runs, unless GCC 14 cross toolchains and qemu-user are
-installed.
+cross-architecture runs, unless GCC 14 cross toolchains, clang 19 and qemu-user
+are installed.
 
 ## Usage
 
@@ -79,8 +79,9 @@ compared against x86_64.
 
 The architectures follow the Guix release targets that run on Linux or Wine:
 32-bit ARM, aarch64, riscv64, big-endian ppc64 and win64, built with GCC 14 as
-Guix does. macOS is missing because it needs Apple's SDK and has no user-mode
-emulator.
+Guix does. macOS needs Apple's SDK and has no user-mode emulator, so
+`aarch64_clang` stands in for arm64 macOS: clang 19 with `-mcpu=apple-m1`,
+targeting Linux.
 
 ```sh
 make docker-cross        # toolchains from ci/Dockerfile; seeds a missing corpus first

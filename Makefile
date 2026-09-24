@@ -163,7 +163,7 @@ cross: $(ARCHES:%=$(BUILD)/cross/%/digests)
 	exit $$status
 
 # Runs `make cross` in a container with the cross toolchains, qemu-user and
-# wine. The corpus is seeded on the host first, so the image needs no clang.
+# wine. The corpus is seeded on the host first, so the image needs no libFuzzer.
 cross-image:
 	$(DOCKER) build -t $(CROSS_IMAGE) ci
 
