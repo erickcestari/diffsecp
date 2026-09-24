@@ -21,10 +21,11 @@ cross-architecture runs, unless the cross toolchains and qemu-user are installed
 ```sh
 git submodule update --init
 make -j
-make check                               # selftest and a short run of every target
-mkdir -p corpus/ecdsa
-build/fuzz_ecdsa corpus/ecdsa            # fuzz until stopped
-build/fuzz_ecdsa crash-<hash>            # replay a divergence
+make check                                              # selftest, corpus replay, short fuzz run
+mkdir -p build/new/ecdsa
+build/fuzz_ecdsa build/new/ecdsa corpus/ecdsa           # fuzz from the corpus until stopped
+build/fuzz_ecdsa -merge=1 corpus/ecdsa build/new/ecdsa  # keep inputs with new coverage
+build/fuzz_ecdsa crash-<hash>                           # replay a divergence
 ```
 
 A divergence prints the two builds, the first differing transcript byte and the
@@ -99,7 +100,14 @@ that flips the last transcript byte and expects every fuzzer to report it, so
 it fails if per-variant flags stop reaching the compiler or the comparison
 misses a byte or a variant. `make check` includes it.
 
+## Corpus
+
+`corpus/<target>` is committed. It was grown by coverage-guided fuzzing and
+minimized with `-merge=1`. `make check` replays it through every variant and
+`make cross` on every architecture. Merging new inputs, instead of fuzzing
+straight into `corpus/`, keeps only those that add coverage.
+
 ## CI
 
 `.github/workflows/ci.yml` runs `make check` and `make docker-cross` on pushes
-to master and on pull requests.
+to master and on pull requests, so every change replays the corpus.
