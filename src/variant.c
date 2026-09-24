@@ -7,6 +7,7 @@
 #error "DIFFSECP_VARIANT must be set to the variant name"
 #endif
 
+#define ENABLE_MODULE_ECDH 1
 #define ENABLE_MODULE_EXTRAKEYS 1
 #define ENABLE_MODULE_SCHNORRSIG 1
 #define ENABLE_MODULE_ELLSWIFT 1
@@ -37,6 +38,7 @@ static void variant_init(void) {
 #include "targets/field.c"
 #include "targets/scalar.c"
 #include "targets/group.c"
+#include "targets/keys.c"
 #include "targets/ellswift.c"
 
 #ifdef DIFFSECP_SELFTEST
