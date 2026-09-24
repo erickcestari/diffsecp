@@ -13,7 +13,8 @@ agree on inputs nobody wrote down.
 
 ## Requirements
 
-clang with libFuzzer, gcc, GNU make and binutils (`objcopy`). Docker for
+clang with libFuzzer, gcc, GNU make and binutils (`objcopy`), plus
+`llvm-profdata` and `llvm-cov` of the same LLVM for `make coverage`. Docker for
 cross-architecture runs, unless GCC 14 cross toolchains, clang 19 and qemu-user
 are installed.
 
@@ -22,11 +23,11 @@ are installed.
 ```sh
 git submodule update --init
 make -j
-make check                                              # selftest, corpus replay, short fuzz run
-mkdir -p build/new/ecdsa
-build/fuzz_ecdsa build/new/ecdsa corpus/ecdsa           # fuzz from the corpus until stopped
-build/fuzz_ecdsa -merge=1 corpus/ecdsa build/new/ecdsa  # keep inputs with new coverage
-build/fuzz_ecdsa crash-<hash>                           # replay a divergence
+make check                                         # selftest, corpus replay, short fuzz run
+make -j fuzz FUZZ_TIME=3600                        # fuzz every target from the corpus for an hour
+make merge                                         # add the new inputs that raise coverage to the corpus
+make coverage                                      # what the corpus reaches, in build/coverage
+build/fuzz_ecdsa build/crashes/ecdsa-crash-<hash>  # replay a divergence
 ```
 
 A divergence prints the two builds, the first differing transcript byte and the
@@ -123,8 +124,18 @@ misses a byte or a variant. `make check` includes it.
 
 `corpus/<target>` is committed. It was grown by coverage-guided fuzzing and
 minimized with `-merge=1`. `make check` replays it through every variant and
-`make cross` on every architecture. Merging new inputs, instead of fuzzing
-straight into `corpus/`, keeps only those that add coverage.
+`make cross` on every architecture.
+
+`make fuzz` writes new inputs to `build/new` and reproducers to `build/crashes`,
+and `FUZZ_ARGS` passes libFuzzer flags such as `-fork=8`. `make merge` then adds
+only the inputs that raise coverage and skips any that diverge. `make minimize`
+rebuilds each corpus from scratch after a target or libsecp changes what inputs
+reach. Every one of them also exists per target, as in `make fuzz-ecdsa`.
+
+`make coverage` replays the corpus through `guide`'s flags without sanitizers and
+writes an llvm-cov report to `build/coverage`: a per-file summary in `report.txt`
+and annotated sources in `html/`. `COVERAGE_VARIANT=guide_int64` shows the int64
+arithmetic instead.
 
 ## CI
 
@@ -136,3 +147,4 @@ runs in Debian trixie with GCC 14 and clang 19.
 master daily, runs CI on the bump and fast-forwards master to it only if CI
 passes. A failed run leaves the bump on the `bump-secp256k1` branch: upstream
 broke a target or changed behavior against the baseline.
+
