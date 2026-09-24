@@ -1,0 +1,61 @@
+name: Bump secp256k1
+
+# Moves external/secp256k1 to upstream master daily, runs CI on the bump and
+# fast-forwards master to it only if CI passes. Pushes made with GITHUB_TOKEN
+# trigger no workflows, so CI runs here instead. A failed run leaves the bump
+# on the bump-secp256k1 branch: upstream broke a target or changed behavior
+# against the baseline.
+on:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    outputs:
+      changed: ${{ steps.bump.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+          fetch-depth: 0
+      - id: bump
+        name: Move external/secp256k1 to upstream master
+        run: |
+          old=$(git -C external/secp256k1 rev-parse HEAD)
+          git submodule update --remote external/secp256k1
+          new=$(git -C external/secp256k1 rev-parse HEAD)
+          if [ "$old" = "$new" ]; then
+            echo changed=false >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -q external/secp256k1 -m "external: bump secp256k1 to ${new:0:12}" \
+            -m "$(git -C external/secp256k1 log --first-parent --format='%h %s' "$old..$new")"
+          git push -f origin HEAD:refs/heads/bump-secp256k1
+          echo changed=true >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: bump
+    if: needs.bump.outputs.changed == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: bump-secp256k1
+
+  merge:
+    needs: ci
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Fast-forward master to the bump
+        run: |
+          git fetch origin bump-secp256k1
+          git merge --ff-only FETCH_HEAD
+          git push origin HEAD:master :bump-secp256k1

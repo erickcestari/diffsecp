@@ -4,6 +4,12 @@ on:
   push:
     branches: [master]
   pull_request:
+  # The daily secp256k1 bump runs these jobs on its branch before merging it.
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
 
 jobs:
   check:
@@ -17,6 +23,7 @@ jobs:
           git ca-certificates make libc6-dev gcc-14 clang-19 libclang-rt-19-dev
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.ref }}
           submodules: true
       - name: Selftest, corpus replay and short run of every target
         run: make -j"$(nproc)" check GCC=gcc-14 CLANG=clang-19
@@ -26,6 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.ref }}
           submodules: true
       - name: Replay the corpus on every architecture
         run: make -j"$(nproc)" docker-cross
