@@ -13,6 +13,7 @@
 #define ENABLE_MODULE_SCHNORRSIG 1
 #define ENABLE_MODULE_MUSIG 1
 #define ENABLE_MODULE_ELLSWIFT 1
+#define ENABLE_MODULE_SILENTPAYMENTS 1
 
 #include "src/secp256k1.c"
 #include "src/precomputed_ecmult.c"
@@ -44,6 +45,7 @@ static void variant_init(void) {
 #include "targets/ellswift.c"
 #include "targets/recovery.c"
 #include "targets/musig.c"
+#include "targets/silentpayments.c"
 
 #ifdef DIFFSECP_SELFTEST
 /* A deliberately wrong build for `make selftest`: flipping the last transcript

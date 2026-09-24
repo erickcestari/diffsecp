@@ -40,6 +40,7 @@ bytes around it.
 | `recovery`       | recoverable ECDSA signing and public key recovery                                      |
 | `keys`           | seckey and pubkey tweaks, negation, combination, sorting, taproot keypair tweaks, ECDH |
 | `musig`          | MuSig2 key aggregation and tweaks, nonces, partial signatures and their aggregation    |
+| `silentpayments` | BIP352 output creation, labels, prevouts summary and scanning                          |
 | `ellswift`       | BIP324 ElligatorSwift encoding and decoding, x-only ECDH                               |
 | `field`          | field arithmetic via a register machine (internal API)                                 |
 | `scalar`         | scalar arithmetic via a register machine (internal API)                                |

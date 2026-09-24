@@ -15,7 +15,7 @@ typedef size_t (*diffsecp_target_fn)(const unsigned char *in, size_t len,
 
 /* Every target, as X(name). The Makefile's TARGETS must list the same names. */
 #define DIFFSECP_TARGETS(X) X(ecdsa) X(schnorrsig) X(field) X(scalar) X(group) X(keys) \
-                            X(ellswift) X(recovery) X(musig)
+                            X(ellswift) X(recovery) X(musig) X(silentpayments)
 
 /* The only global symbol a variant object exports, named diffsecp_variant_<name>. */
 struct diffsecp_variant {
