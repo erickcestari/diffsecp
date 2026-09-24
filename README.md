@@ -37,6 +37,7 @@ bytes around it.
 |------------------|----------------------------------------------------------------------------------------|
 | `ecdsa`          | pubkey parsing, strict and lax DER, low-S normalization, sign, verify                  |
 | `schnorrsig`     | BIP340 sign and verify, x-only parsing, taproot tweak check                            |
+| `ellswift`       | BIP324 ElligatorSwift encoding and decoding, x-only ECDH                               |
 | `field`          | field arithmetic via a register machine (internal API)                                 |
 | `scalar`         | scalar arithmetic via a register machine (internal API)                                |
 | `group`          | point addition, doubling and multiplication via a register machine (internal API)      |

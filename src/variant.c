@@ -9,6 +9,7 @@
 
 #define ENABLE_MODULE_EXTRAKEYS 1
 #define ENABLE_MODULE_SCHNORRSIG 1
+#define ENABLE_MODULE_ELLSWIFT 1
 
 #include "src/secp256k1.c"
 #include "src/precomputed_ecmult.c"
@@ -36,6 +37,7 @@ static void variant_init(void) {
 #include "targets/field.c"
 #include "targets/scalar.c"
 #include "targets/group.c"
+#include "targets/ellswift.c"
 
 #ifdef DIFFSECP_SELFTEST
 /* A deliberately wrong build for `make selftest`: flipping the last transcript
