@@ -46,11 +46,13 @@ reaching verify paths random bytes almost never hit.
 `variants.mk` lists the builds: a name, a compiler and flags. Every transcript is
 compared against the first variant, `guide`, which is built with coverage, ASan,
 UBSan and libsecp's `VERIFY` checks. It steers the fuzzer and catches the harness
-misusing internal APIs. The other variants are built as production code would be.
+misusing internal APIs. The others cover release builds with GCC and clang,
+optimizer extremes (`-O0`, `-Os`, `-O3 -march=native`), each arithmetic
+implementation (int128, int128_struct, int64) and the smallest tables.
 
 To add one, append its name to `VARIANTS` and set `<name>_CC` and
 `<name>_CFLAGS`. Overrides also work from the command line, for example
-`make gcc_O2_CC=gcc-14`.
+`make gcc_release_CC=gcc-14`.
 
 ## How it works
 
