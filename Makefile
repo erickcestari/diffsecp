@@ -5,7 +5,11 @@
 SECP        ?= external/secp256k1
 BUILD       ?= build
 CORPUS      ?= corpus
-FUZZ_CC     ?= clang
+# Compilers of the variants in variants.mk. CI sets GCC=gcc-14 CLANG=clang-19,
+# the versions Guix builds releases with.
+GCC         ?= gcc
+CLANG       ?= clang
+FUZZ_CC     ?= $(CLANG)
 OBJCOPY     ?= objcopy
 SMOKE_RUNS  ?= 1000
 DOCKER      ?= docker

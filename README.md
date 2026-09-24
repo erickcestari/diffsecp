@@ -14,7 +14,8 @@ agree on inputs nobody wrote down.
 ## Requirements
 
 clang with libFuzzer, gcc, GNU make and binutils (`objcopy`). Docker for
-cross-architecture runs, unless the cross toolchains and qemu-user are installed.
+cross-architecture runs, unless GCC 14 cross toolchains and qemu-user are
+installed.
 
 ## Usage
 
@@ -63,8 +64,10 @@ optimizer extremes (`-O0`, `-Os`, `-O3 -march=native`), each arithmetic
 implementation (int128, int128_struct, int64) and the smallest tables.
 
 To add one, append its name to `VARIANTS` and set `<name>_CC` and
-`<name>_CFLAGS`. Overrides also work from the command line, for example
-`make gcc_release_CC=gcc-14`.
+`<name>_CFLAGS`. `GCC` and `CLANG` pick the compilers of all variants: CI uses
+`GCC=gcc-14 CLANG=clang-19`, the versions Guix builds releases with, and a local
+build uses the system ones. Single variants can be overridden too, for example
+`make gcc_release_CC=gcc-15`.
 
 ## Cross-architecture
 
@@ -75,8 +78,9 @@ each entry in `arches.mk` and run under qemu-user or wine, and the digests are
 compared against x86_64.
 
 The architectures follow the Guix release targets that run on Linux or Wine:
-32-bit ARM, aarch64, riscv64, big-endian ppc64 and win64. macOS is missing
-because it needs Apple's SDK and has no user-mode emulator.
+32-bit ARM, aarch64, riscv64, big-endian ppc64 and win64, built with GCC 14 as
+Guix does. macOS is missing because it needs Apple's SDK and has no user-mode
+emulator.
 
 ```sh
 make docker-cross        # toolchains from ci/Dockerfile; seeds a missing corpus first
@@ -118,4 +122,5 @@ straight into `corpus/`, keeps only those that add coverage.
 ## CI
 
 `.github/workflows/ci.yml` runs `make check` and `make docker-cross` on pushes
-to master and on pull requests, so every change replays the corpus.
+to master and on pull requests, so every change replays the corpus. `make check`
+runs in Debian trixie with GCC 14 and clang 19.
