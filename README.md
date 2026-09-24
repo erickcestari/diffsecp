@@ -33,15 +33,18 @@ bytes around it.
 
 ## Targets
 
-| Target       | Covers                                                             |
-|--------------|--------------------------------------------------------------------|
-| `ecdsa`      | pubkey parsing, strict and lax DER, low-S normalization, sign, verify |
-| `schnorrsig` | BIP340 sign and verify, x-only parsing, taproot tweak check         |
-| `field`      | field arithmetic via a register machine (internal API)              |
-| `scalar`     | scalar arithmetic via a register machine (internal API)             |
+| Target           | Covers                                                                                 |
+|------------------|----------------------------------------------------------------------------------------|
+| `ecdsa`          | pubkey parsing, strict and lax DER, low-S normalization, sign, verify                  |
+| `schnorrsig`     | BIP340 sign and verify, x-only parsing, taproot tweak check                            |
+| `field`          | field arithmetic via a register machine (internal API)                                 |
+| `scalar`         | scalar arithmetic via a register machine (internal API)                                |
+| `group`          | point addition, doubling and multiplication via a register machine (internal API)      |
 
 The signature targets sign first and then mutate the signature, message or key,
-reaching verify paths random bytes almost never hit.
+reaching verify paths random bytes almost never hit. `group` builds its points as
+k·G from fuzzed scalars, so it reaches the exceptional cases of point addition
+(doubling, P + (-P), infinity) that signatures can't.
 
 ## Variants
 

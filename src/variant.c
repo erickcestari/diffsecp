@@ -35,6 +35,7 @@ static void variant_init(void) {
 #include "targets/schnorrsig.c"
 #include "targets/field.c"
 #include "targets/scalar.c"
+#include "targets/group.c"
 
 #ifdef DIFFSECP_SELFTEST
 /* A deliberately wrong build for `make selftest`: flipping the last transcript
