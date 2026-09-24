@@ -13,7 +13,7 @@
 CROSS_GCC_VERSION ?= 14
 CROSS_CLANG       ?= clang-19
 
-ARCHES := x86_64 arm aarch64 aarch64_clang riscv64 ppc64 win64
+ARCHES := x86_64 arm aarch64 aarch64_clang riscv64 ppc64 ppc64le win64
 
 x86_64_CC     := gcc-$(CROSS_GCC_VERSION)
 x86_64_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS) $(LIBSECP_ASM_X86_64)
@@ -42,6 +42,12 @@ riscv64_RUN    := qemu-riscv64
 ppc64_CC     := powerpc64-linux-gnu-gcc-$(CROSS_GCC_VERSION)
 ppc64_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS)
 ppc64_RUN    := qemu-ppc64
+
+# Guix currently leaves ppc64le out over build nondeterminism, but it is a
+# distinct ABI (little-endian ELFv2) that nodes run on.
+ppc64le_CC     := powerpc64le-linux-gnu-gcc-$(CROSS_GCC_VERSION)
+ppc64le_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS)
+ppc64le_RUN    := qemu-ppc64le
 
 # LLP64 and the Windows calling convention.
 win64_CC     := x86_64-w64-mingw32-gcc-$(CROSS_GCC_VERSION)-win32

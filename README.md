@@ -81,7 +81,8 @@ The architectures follow the Guix release targets that run on Linux or Wine:
 32-bit ARM, aarch64, riscv64, big-endian ppc64 and win64, built with GCC 14 as
 Guix does. macOS needs Apple's SDK and has no user-mode emulator, so
 `aarch64_clang` stands in for arm64 macOS: clang 19 with `-mcpu=apple-m1`,
-targeting Linux.
+targeting Linux. ppc64le is also covered, although Guix currently leaves it out
+over build nondeterminism.
 
 ```sh
 make docker-cross        # toolchains from ci/Dockerfile; seeds a missing corpus first

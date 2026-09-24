@@ -9,6 +9,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
         gcc-14-aarch64-linux-gnu libc6-dev-arm64-cross \
         gcc-14-riscv64-linux-gnu libc6-dev-riscv64-cross \
         gcc-14-powerpc64-linux-gnu libc6-dev-ppc64-cross \
+        gcc-14-powerpc64le-linux-gnu libc6-dev-ppc64el-cross \
         clang-19 \
         gcc-mingw-w64-x86-64-win32 wine wine64 \
         qemu-user \
