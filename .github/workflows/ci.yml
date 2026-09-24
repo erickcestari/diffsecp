@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - name: Install clang with libFuzzer
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
+      - name: Selftest and short run of every target
+        run: make -j"$(nproc)" check
+
+  cross:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      # clang builds the fuzzers that seed the corpus; the cross toolchains come from ci/Dockerfile.
+      - name: Install clang with libFuzzer
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
+      - name: Replay the corpus on every architecture
+        run: make -j"$(nproc)" docker-cross

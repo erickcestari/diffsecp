@@ -21,7 +21,7 @@ cross-architecture runs, unless the cross toolchains and qemu-user are installed
 ```sh
 git submodule update --init
 make -j
-make check                               # short run of every target
+make check                               # selftest and a short run of every target
 mkdir -p corpus/ecdsa
 build/fuzz_ecdsa corpus/ecdsa            # fuzz until stopped
 build/fuzz_ecdsa crash-<hash>            # replay a divergence
@@ -91,3 +91,13 @@ A target writes every result it observes (return codes, serialized outputs) to a
 transcript, and `src/fuzz.c` compares the transcripts byte for byte. Targets must
 be deterministic and free of unspecified behavior, or the harness itself will
 report false divergences.
+
+`make selftest` checks the harness itself. It links an extra copy of `guide`
+that flips the last transcript byte and expects every fuzzer to report it, so
+it fails if per-variant flags stop reaching the compiler or the comparison
+misses a byte or a variant. `make check` includes it.
+
+## CI
+
+`.github/workflows/ci.yml` runs `make check` and `make docker-cross` on pushes
+to master and on pull requests.
