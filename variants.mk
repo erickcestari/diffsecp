@@ -1,5 +1,6 @@
 # Builds of libsecp256k1 compared against each other. Each name must be a C
-# identifier and needs <name>_CC and <name>_CFLAGS. The first variant is the
+# identifier and needs <name>_CC and <name>_CFLAGS; <name>_SECP optionally
+# points it at another libsecp tree than SECP. The first variant is the
 # reference every other transcript is compared to. Every variant costs time on
 # every input, so each one should change the generated code in a new way.
 #

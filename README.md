@@ -64,7 +64,8 @@ optimizer extremes (`-O0`, `-Os`, `-O3 -march=native`), each arithmetic
 implementation (int128, int128_struct, int64) and the smallest tables.
 
 To add one, append its name to `VARIANTS` and set `<name>_CC` and
-`<name>_CFLAGS`. `GCC` and `CLANG` pick the compilers of all variants: CI uses
+`<name>_CFLAGS`, and optionally `<name>_SECP` for another libsecp tree.
+`GCC` and `CLANG` pick the compilers of all variants: CI uses
 `GCC=gcc-14 CLANG=clang-19`, the versions Guix builds releases with, and a local
 build uses the system ones. Single variants can be overridden too, for example
 `make gcc_release_CC=gcc-15`.
