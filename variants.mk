@@ -21,12 +21,9 @@ VARIANTS := guide \
 SANITIZE_CFLAGS := -fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=all \
                    -fno-sanitize-address-globals-dead-stripping
 
-# libsecp's own build defaults: ECMULT_WINDOW_SIZE=15, ECMULT_GEN_KB=86, and
-# x86_64 asm when available. Compiling src/secp256k1.c without them, as guide
-# does, gives a 22 kB signing table instead.
-RELEASE_CFLAGS := -O2 -DECMULT_WINDOW_SIZE=15 -DCOMB_BLOCKS=43 -DCOMB_TEETH=6
+RELEASE_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS)
 ifeq ($(shell uname -m),x86_64)
-RELEASE_CFLAGS += -DUSE_ASM_X86_64
+RELEASE_CFLAGS += $(LIBSECP_ASM_X86_64)
 endif
 
 # Steers the fuzzer: coverage, ASan, UBSan, and libsecp's VERIFY checks, which

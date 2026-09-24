@@ -1,15 +1,27 @@
 # Builds every variant in variants.mk, then one libFuzzer binary per target that
-# links all variants side by side.
+# links all variants side by side. `make cross` replays the corpus on the
+# architectures in arches.mk instead.
 
-SECP       ?= external/secp256k1
-BUILD      ?= build
-FUZZ_CC    ?= clang
-OBJCOPY    ?= objcopy
-SMOKE_RUNS ?= 4000
+SECP        ?= external/secp256k1
+BUILD       ?= build
+CORPUS      ?= corpus
+FUZZ_CC     ?= clang
+OBJCOPY     ?= objcopy
+SMOKE_RUNS  ?= 4000
+DOCKER      ?= docker
+CROSS_IMAGE ?= diffsecp-cross
 
 TARGETS := ecdsa schnorrsig field scalar
 
+# libsecp's own build defaults (CMake and autotools): -O2 from RelWithDebInfo,
+# ECMULT_WINDOW_SIZE=15 and ECMULT_GEN_KB=86. Its x86_64 asm is also on by
+# default wherever it compiles. Compiling src/secp256k1.c without these, as the
+# guide variant does, gives a 22 kB signing table instead.
+LIBSECP_DEFAULT_CFLAGS := -O2 -DECMULT_WINDOW_SIZE=15 -DCOMB_BLOCKS=43 -DCOMB_TEETH=6
+LIBSECP_ASM_X86_64     := -DUSE_ASM_X86_64
+
 include variants.mk
+include arches.mk
 
 WARNINGS := -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes -Wundef -Wcast-align \
             -Wno-unused-function -Wno-overlength-strings
@@ -21,7 +33,7 @@ FUZZ_COMPILE  = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=fuzzer,address,undefi
                 -fno-sanitize-recover=all -I$(BUILD)
 VARIANTS_H   := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS),X($(v)))
 
-.PHONY: all check $(TARGETS:%=check-%) clean FORCE
+.PHONY: all check $(TARGETS:%=check-%) cross cross-image docker-cross clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -65,6 +77,68 @@ $(TARGETS:%=check-%): check-%: $(BUILD)/fuzz_%
 		cat $$log; echo "FAIL $*"; exit 1; \
 	fi; \
 	echo "ok   $*: $$(tail -n 1 $$log)"
+
+# A missing corpus is seeded with a short fuzzing run. The fuzzer is built from
+# the recipe, not as a prerequisite, so an existing corpus needs no clang.
+$(CORPUS)/%:
+	$(MAKE) --no-print-directory $(BUILD)/fuzz_$*
+	mkdir -p $@
+	$(BUILD)/fuzz_$* -runs=$(SMOKE_RUNS) -seed=1 $@ > $(BUILD)/seed_$*.log 2>&1
+
+# One static replay binary per architecture, and the digest of every corpus
+# input on it. Digests are always regenerated since the corpus changes freely.
+define ARCH_RULE
+cross_$(1)_COMPILE = $$($(1)_CC) $$(COMMON_CFLAGS) $$($(1)_CFLAGS) -I$$(SECP) -I$$(SECP)/include \
+                     -DDIFFSECP_VARIANT=$(1)
+
+$(BUILD)/cross/$(1):
+	mkdir -p $$@
+
+$(BUILD)/cross/$(1)/flags: FORCE | $(BUILD)/cross/$(1)
+	@echo '$$(cross_$(1)_COMPILE)' | cmp -s - $$@ || echo '$$(cross_$(1)_COMPILE)' > $$@
+
+$(BUILD)/cross/$(1)/%.o: src/%.c $(BUILD)/cross/$(1)/flags
+	$$(cross_$(1)_COMPILE) -MMD -MP -MT $$@ -MF $$(@:.o=.d) -c $$< -o $$@
+
+$(BUILD)/cross/$(1)/replay$$($(1)_EXE): $(BUILD)/cross/$(1)/variant.o $(BUILD)/cross/$(1)/replay.o
+	$$($(1)_CC) -static $$^ -o $$@
+
+$(BUILD)/cross/$(1)/digests: $(BUILD)/cross/$(1)/replay$$($(1)_EXE) FORCE | $(TARGETS:%=$(CORPUS)/%)
+	@for t in $(TARGETS); do \
+		find $(CORPUS)/$$$$t -type f | LC_ALL=C sort | $$($(1)_RUN) $$< $$$$t || exit 1; \
+	done > $$@.tmp
+	@mv $$@.tmp $$@
+
+-include $(BUILD)/cross/$(1)/variant.d $(BUILD)/cross/$(1)/replay.d
+endef
+$(foreach a,$(ARCHES),$(eval $(call ARCH_RULE,$(a))))
+
+CROSS_REF := $(BUILD)/cross/$(firstword $(ARCHES))/digests
+
+cross: $(ARCHES:%=$(BUILD)/cross/%/digests)
+	@status=0; \
+	for a in $(wordlist 2,$(words $(ARCHES)),$(ARCHES)); do \
+		d=$(BUILD)/cross/$$a/digests; \
+		if cmp -s $(CROSS_REF) $$d; then \
+			echo "ok   $$a: $$(wc -l < $$d) inputs match $(firstword $(ARCHES))"; \
+		else \
+			echo "DIVERGE $$a (< $(firstword $(ARCHES)), > $$a):"; diff $(CROSS_REF) $$d | head -n 20; status=1; \
+		fi; \
+	done; \
+	exit $$status
+
+# Runs `make cross` in a container with the cross toolchains, qemu-user and
+# wine. The corpus is seeded on the host first, so the image needs no clang.
+cross-image:
+	$(DOCKER) build -t $(CROSS_IMAGE) ci
+
+# HOME lives in the build tree because wine only creates its prefix in a
+# directory the user owns, and keeping it there skips wine's setup next time.
+docker-cross: cross-image | $(TARGETS:%=$(CORPUS)/%)
+	mkdir -p $(BUILD)/docker/home
+	$(DOCKER) run --rm -u $$(id -u):$$(id -g) -e HOME=/src/$(BUILD)/docker/home -e WINEDEBUG=-all \
+		-v $(CURDIR):/src -w /src $(CROSS_IMAGE) \
+		make -j$$(nproc) BUILD=$(BUILD)/docker CORPUS=$(CORPUS) cross
 
 $(BUILD) $(BUILD)/variants:
 	mkdir -p $@

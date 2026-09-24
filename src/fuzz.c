@@ -15,9 +15,6 @@
 #error "DIFFSECP_TARGET must be set to a member of struct diffsecp_variant"
 #endif
 
-#define STR_(x) #x
-#define STR(x) STR_(x)
-
 #define DECLARE(name) extern const struct diffsecp_variant diffsecp_variant_##name;
 DIFFSECP_VARIANTS(DECLARE)
 #undef DECLARE
@@ -54,7 +51,7 @@ static void report_divergence(size_t v) {
         at++;
     }
     fprintf(stderr, "diffsecp: target %s diverges between %s and %s at byte %zu (lengths %zu, %zu)\n",
-            STR(DIFFSECP_TARGET), variants[0]->name, variants[v]->name, at, lengths[0], lengths[v]);
+            DIFFSECP_STR(DIFFSECP_TARGET), variants[0]->name, variants[v]->name, at, lengths[0], lengths[v]);
     dump(0, at);
     dump(v, at);
     abort();

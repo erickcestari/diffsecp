@@ -36,16 +36,9 @@ static void variant_init(void) {
 #include "targets/field.c"
 #include "targets/scalar.c"
 
-#define DIFFSECP_CAT_(a, b) a##b
-#define DIFFSECP_CAT(a, b) DIFFSECP_CAT_(a, b)
-#define DIFFSECP_STR_(a) #a
-#define DIFFSECP_STR(a) DIFFSECP_STR_(a)
-
+#define DIFFSECP_INIT(t) .t = target_##t,
 const struct diffsecp_variant DIFFSECP_CAT(diffsecp_variant_, DIFFSECP_VARIANT) = {
     .name = DIFFSECP_STR(DIFFSECP_VARIANT),
     .init = variant_init,
-    .ecdsa = target_ecdsa,
-    .schnorrsig = target_schnorrsig,
-    .field = target_field,
-    .scalar = target_scalar,
+    DIFFSECP_TARGETS(DIFFSECP_INIT)
 };
