@@ -33,8 +33,8 @@ jobs:
             echo changed=false >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name 'diffsecp CI'
+          git config user.email 'ci@diffsecp.invalid'
           git commit -q external/secp256k1 -m "external: bump secp256k1 to ${new:0:12}" \
             -m "$(git -C external/secp256k1 log --first-parent --format='%h %s' "$old..$new")"
           git push -f origin HEAD:refs/heads/bump-secp256k1

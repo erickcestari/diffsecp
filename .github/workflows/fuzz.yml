@@ -61,6 +61,8 @@ jobs:
         id: corpus
         if: ${{ !cancelled() }}
         run: |
+          # checkout trusts the runner-owned workspace only while it runs; the container is root.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git add corpus README.md
           if git diff --cached --quiet; then
             echo changed=false >> "$GITHUB_OUTPUT"
@@ -71,8 +73,8 @@ jobs:
           else
             subject="corpus: add inputs from daily fuzzing"
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name 'diffsecp CI'
+          git config user.email 'ci@diffsecp.invalid'
           git commit -q -m "$subject" -m "$(git diff --cached --stat HEAD | tail -n 1)"
           git push -f origin HEAD:refs/heads/fuzz-corpus
           echo changed=true >> "$GITHUB_OUTPUT"
