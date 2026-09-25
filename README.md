@@ -143,7 +143,10 @@ minimized with `-merge=1`. `make check` replays it through every variant and
 `make cross` on every architecture.
 
 `make fuzz` writes new inputs to `build/new` and reproducers to `build/crashes`,
-and `FUZZ_ARGS` passes libFuzzer flags such as `-fork=8`. `make merge` then adds
+and `FUZZ_ARGS` passes libFuzzer flags such as `-fork=8`. It mutates with
+`fuzz.dict`, boundary values such as p, n and n/2 (`FUZZ_DICT=` turns it off):
+with it, bugs planted at p and n/2 were found within a minute, and not in five
+minutes without. `make merge` then adds
 only the inputs that raise coverage and skips any that diverge. `make minimize`
 rebuilds each corpus from scratch after a target or libsecp changes what inputs
 reach. Every one of them also exists per target, as in `make fuzz-ecdsa`.
