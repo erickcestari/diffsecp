@@ -15,9 +15,10 @@ SMOKE_RUNS  ?= 1000
 # Seconds per target for `make fuzz`, and extra libFuzzer flags such as -fork=N.
 FUZZ_TIME   ?= 600
 FUZZ_ARGS   ?=
-# Boundary values such as p, n and n/2 that the fuzzer rarely builds on its
-# own; empty to fuzz without.
-FUZZ_DICT   ?= fuzz.dict
+# Dictionaries of boundary values (p, n, n/2, hard inversion inputs...) the
+# fuzzer rarely builds on its own: each target gets common.dict plus its own
+# <target>.dict. Empty to fuzz without.
+FUZZ_DICT   ?= dict
 DOCKER      ?= docker
 CROSS_IMAGE ?= diffsecp-cross
 # `make coverage` builds with this variant's flags minus its sanitizers, and
@@ -147,8 +148,9 @@ fuzz: $(TARGETS:%=fuzz-%)
 
 $(TARGETS:%=fuzz-%): fuzz-%: $(BUILD)/fuzz_% | $(CORPUS)/%
 	@log=$(BUILD)/$@.log; mkdir -p $(BUILD)/new/$* $(BUILD)/crashes; \
+	$(if $(FUZZ_DICT),cat $(FUZZ_DICT)/common.dict $(wildcard $(FUZZ_DICT)/$*.dict) > $(BUILD)/$*.dict;) \
 	if ! $< -max_total_time=$(FUZZ_TIME) -artifact_prefix=$(BUILD)/crashes/$*- \
-	     $(if $(FUZZ_DICT),-dict=$(FUZZ_DICT)) $(FUZZ_ARGS) $(BUILD)/new/$* $(CORPUS)/$* > $$log 2>&1; then \
+	     $(if $(FUZZ_DICT),-dict=$(BUILD)/$*.dict) $(FUZZ_ARGS) $(BUILD)/new/$* $(CORPUS)/$* > $$log 2>&1; then \
 		tail -n 40 $$log; echo "FAIL $*: see $$log and $(BUILD)/crashes"; exit 1; \
 	fi; \
 	echo "ok   $*: $$(ls $(BUILD)/new/$* | wc -l) new inputs, $$(grep -E '^#[0-9]+' $$log | tail -n 1)"
