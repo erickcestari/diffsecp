@@ -189,14 +189,14 @@ versions.
 
 <!-- coverage:begin -->
 
-libsecp `b63c6afb9924`: 85.99% of lines, 59.03% of branches, 88.66% of functions.
+libsecp `f14d2992585b`: 86.85% of lines, 60.20% of branches, 89.07% of functions.
 
 | File | Lines | Branches | Functions |
 |------|------:|---------:|----------:|
 | `contrib/lax_der_parsing.c` | 100.00% | 100.00% | 100.00% |
 | `src/assumptions.h` | 0.00% | - | 0.00% |
-| `src/ecdsa_impl.h` | 79.69% | 63.46% | 100.00% |
-| `src/eckey_impl.h` | 93.10% | 75.00% | 100.00% |
+| `src/ecdsa_impl.h` | 97.40% | 94.23% | 100.00% |
+| `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
 | `src/ecmult_const_impl.h` | 100.00% | 74.14% | 100.00% |
 | `src/ecmult_gen_impl.h` | 94.92% | 78.12% | 85.71% |
 | `src/ecmult_impl.h` | 41.10% | 32.69% | 44.00% |
@@ -204,7 +204,7 @@ libsecp `b63c6afb9924`: 85.99% of lines, 59.03% of branches, 88.66% of functions
 | `src/field_5x52_int128_impl.h` | 100.00% | 50.00% | 100.00% |
 | `src/field_impl.h` | 96.61% | 66.07% | 96.77% |
 | `src/group_impl.h` | 96.41% | 71.47% | 95.74% |
-| `src/hash_impl.h` | 79.31% | 63.04% | 83.33% |
+| `src/hash_impl.h` | 82.41% | 63.04% | 88.89% |
 | `src/hsort_impl.h` | 94.55% | 76.92% | 100.00% |
 | `src/int128_native_impl.h` | 91.18% | 60.71% | 89.47% |
 | `src/modinv64_impl.h` | 99.18% | 62.24% | 100.00% |
@@ -219,7 +219,7 @@ libsecp `b63c6afb9924`: 85.99% of lines, 59.03% of branches, 88.66% of functions
 | `src/scalar_4x64_impl.h` | 100.00% | 52.74% | 100.00% |
 | `src/scalar_impl.h` | 100.00% | 59.09% | 100.00% |
 | `src/scratch_impl.h` | 0.00% | 0.00% | 0.00% |
-| `src/secp256k1.c` | 78.16% | 47.93% | 76.00% |
+| `src/secp256k1.c` | 80.94% | 50.00% | 78.00% |
 | `src/selftest.h` | 83.33% | 33.33% | 100.00% |
 | `src/util.h` | 62.42% | 70.00% | 65.00% |
 
