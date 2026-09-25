@@ -13,7 +13,12 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    # Natively on aarch64 too, where every variant builds for arm64.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     # Debian trixie ships GCC 14 and clang 19, the versions Guix builds releases with.
     container: debian:trixie
     steps:

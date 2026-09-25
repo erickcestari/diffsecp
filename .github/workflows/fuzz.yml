@@ -1,8 +1,9 @@
 name: Fuzz
 
-# Fuzzes every target from the corpus on one runner, then adds the inputs that
+# Fuzzes every target from the corpus on x86_64, then adds the inputs that
 # raise coverage to the corpus and refreshes the README's coverage table once CI
-# passes on them. The full coverage report is uploaded as an artifact.
+# passes on them. The full coverage report is uploaded as an artifact. Another
+# job fuzzes natively on aarch64.
 # A divergence fails the run without printing it and uploads its reproducer
 # encrypted to the maintainer's key (ci/seal-reproducers.sh). Daily, finishing
 # before the secp256k1 bump so the two never race to fast-forward master.
@@ -90,6 +91,44 @@ jobs:
           path: |
             build/coverage/html
             build/coverage/report.txt
+
+  # The same fuzzing natively on aarch64, where every variant builds for arm64.
+  # Coverage steers both jobs alike, so this one keeps no inputs.
+  fuzz-aarch64:
+    runs-on: ubuntu-24.04-arm
+    container: debian:trixie
+    env:
+      GCC: gcc-14
+      CLANG: clang-19
+    steps:
+      - name: Install toolchain
+        run: >-
+          apt-get update && apt-get install -y --no-install-recommends
+          git ca-certificates make libc6-dev gcc-14 clang-19 libclang-rt-19-dev gnupg
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - name: Build
+        run: make -j"$(nproc)" all
+      - name: Fuzz every target at once
+        env:
+          MINUTES: ${{ inputs.minutes || '120' }}
+        # A failure's output names the input, so it stays out of the public log.
+        run: |
+          if ! make -k -j fuzz FUZZ_TIME=$((60 * MINUTES)) > build/fuzz.out 2>&1; then
+            echo "::error::fuzzing failed; its output is in the encrypted reproducers artifact"
+            exit 1
+          fi
+          cat build/fuzz.out
+      - name: Encrypt the reproducers
+        if: failure()
+        run: ci/seal-reproducers.sh build/reproducers.tar.gz.gpg build/crashes build/fuzz-*.log build/fuzz.out
+      - name: Upload reproducers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproducers-aarch64
+          path: build/reproducers.tar.gz.gpg
 
   ci:
     needs: fuzz
