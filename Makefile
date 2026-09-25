@@ -63,7 +63,8 @@ SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) sel
 
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
         fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
-        coverage readme-coverage cross cross-selftest cross-image docker-cross docker-cross-selftest clean FORCE
+        coverage readme-coverage cross cross-selftest native cross-image docker-cross docker-cross-selftest \
+        clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -205,6 +206,7 @@ readme-coverage: coverage
 # One static replay binary per architecture, and the digest of every corpus
 # input on it. Digests are always regenerated since the corpus changes freely.
 define ARCH_RULE
+$(1)_LDFLAGS ?= -static
 cross_$(1)_COMPILE = $$($(1)_CC) $$(COMMON_CFLAGS) $$($(1)_CFLAGS) -I$$(SECP) -I$$(SECP)/include \
                      -DDIFFSECP_VARIANT=$(1)
 
@@ -218,7 +220,7 @@ $(BUILD)/cross/$(1)/%.o: src/%.c $(BUILD)/cross/$(1)/flags
 	$$(cross_$(1)_COMPILE) -MMD -MP -MT $$@ -MF $$(@:.o=.d) -c $$< -o $$@
 
 $(BUILD)/cross/$(1)/replay$$($(1)_EXE): $(BUILD)/cross/$(1)/variant.o $(BUILD)/cross/$(1)/replay.o
-	$$($(1)_CC) -static $$^ -o $$@
+	$$($(1)_CC) $$($(1)_LDFLAGS) $$^ -o $$@
 
 $(BUILD)/cross/$(1)/digests: $(BUILD)/cross/$(1)/replay$$($(1)_EXE) FORCE | $(TARGETS:%=$(CORPUS)/%)
 	@for t in $(TARGETS); do \
@@ -228,13 +230,14 @@ $(BUILD)/cross/$(1)/digests: $(BUILD)/cross/$(1)/replay$$($(1)_EXE) FORCE | $(TA
 
 -include $(BUILD)/cross/$(1)/variant.d $(BUILD)/cross/$(1)/replay.d
 endef
-$(foreach a,$(ARCHES) cross_selftest,$(eval $(call ARCH_RULE,$(a))))
+$(foreach a,$(ARCHES) $(NATIVE_ARCHES) cross_selftest,$(eval $(call ARCH_RULE,$(a))))
 
 CROSS_REF := $(BUILD)/cross/$(CROSS_REFERENCE)/digests
 
-cross: cross-selftest $(ARCHES:%=$(BUILD)/cross/%/digests)
-	@status=0; \
-	for a in $(wordlist 2,$(words $(ARCHES)),$(ARCHES)); do \
+# Compares the digests of each architecture in $(1) with CROSS_REF, printing a
+# verdict per architecture, and fails if any differs.
+cross_compare = status=0; \
+	for a in $(1); do \
 		d=$(BUILD)/cross/$$a/digests; \
 		if cmp -s $(CROSS_REF) $$d; then \
 			echo "ok   $$a: $$(wc -l < $$d) inputs match $(CROSS_REFERENCE)"; \
@@ -243,6 +246,14 @@ cross: cross-selftest $(ARCHES:%=$(BUILD)/cross/%/digests)
 		fi; \
 	done; \
 	exit $$status
+
+cross: cross-selftest $(ARCHES:%=$(BUILD)/cross/%/digests)
+	@$(call cross_compare,$(wordlist 2,$(words $(ARCHES)),$(ARCHES)))
+
+# Replays the corpus on NATIVE_ARCHES built for this host. Set CROSS_REF to
+# digests from a `make cross` elsewhere, since this host can't build them.
+native: $(CROSS_REF) $(NATIVE_ARCHES:%=$(BUILD)/cross/%/digests)
+	@$(call cross_compare,$(NATIVE_ARCHES))
 
 # Proves the digests expose a divergence: fails if they miss a transcript byte,
 # a target or its corpus drops out of the replay, or per-architecture flags stop
