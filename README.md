@@ -75,8 +75,9 @@ newer API, and only to a commit that shows no divergence.
 To add one, append its name to `VARIANTS` and set `<name>_CC` and
 `<name>_CFLAGS`, and optionally `<name>_SECP` for another libsecp tree.
 `GCC` and `CLANG` pick the compilers of all variants: CI uses
-`GCC=gcc-14 CLANG=clang-19`, the versions Guix builds releases with, and a local
-build uses the system ones. Single variants can be overridden too, for example
+`GCC=gcc-14 CLANG=clang-19`, the versions Guix builds releases with, the
+weekly latest-compilers run uses the newest releases, and a local build uses
+the system ones. Single variants can be overridden too, for example
 `make gcc_release_CC=gcc-15`.
 
 ## Cross-architecture
@@ -165,6 +166,11 @@ key (`ci/maintainer.asc`), since artifacts of a public repository are public:
 ```sh
 gh run download <run-id> -n reproducers && gpg -d reproducers.tar.gz.gpg | tar -xz
 ```
+
+`.github/workflows/latest-compilers.yml` builds every variant with the newest
+GCC and clang from Arch Linux weekly, then runs `make check` and fuzzes every
+target for two hours: distros ship new compilers long before Guix does, and new
+optimizer bugs show up there first. It never touches the corpus.
 
 ## Coverage
 

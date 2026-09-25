@@ -1,0 +1,45 @@
+name: Latest compilers
+
+# Builds every variant with the newest GCC and clang, which distros ship long
+# before Guix moves to them and where new optimizer bugs show up first, then
+# replays the corpus and fuzzes every target. Arch Linux packages each compiler
+# release within weeks. Weekly, and it never touches the corpus.
+on:
+  schedule:
+    - cron: '7 9 * * 0'
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: Minutes to fuzz every target for
+        default: '120'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - name: Install toolchain
+        run: pacman -Syu --noconfirm --needed base-devel clang compiler-rt git
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - name: Compiler versions
+        run: gcc --version | head -n 1 && clang --version | head -n 1
+      - name: Selftest, corpus replay and short run of every target
+        run: make -j"$(nproc)" check
+      - name: Fuzz every target at once
+        env:
+          MINUTES: ${{ inputs.minutes || '120' }}
+        run: make -k -j fuzz FUZZ_TIME=$((60 * MINUTES))
+      - name: Upload reproducers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproducers
+          path: |
+            build/crashes
+            build/check-*.log
+            build/fuzz-*.log
