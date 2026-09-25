@@ -150,8 +150,14 @@ need the most safegcd steps, and the scalars at the edges of `ecmult_const` and
 the lambda split. Bugs planted at those values in one variant were found within
 minutes with them and in none of four five-minute runs without, while coverage
 stays the same: the arithmetic is branch-free. `FUZZ_DICT=` turns them off.
-`make merge` then adds
-only the inputs that raise coverage and skips any that diverge. `make minimize`
+
+`field` and `scalar` also fuzz with libFuzzer's value profile
+(`FUZZ_VALUE_PROFILE`), which keeps inputs that bring a compare's operands
+closer. With the dictionaries it found every planted bug in all four runs, most
+within 20 seconds, at no cost to their coverage. On `ecdsa` and `group` it
+multiplied the corpus and lowered coverage within five minutes, so they fuzz
+without it. `make merge` then adds only the inputs that raise coverage and skips
+any that diverge, so the committed corpus stays compact. `make minimize`
 rebuilds each corpus from scratch after a target or libsecp changes what inputs
 reach. Every one of them also exists per target, as in `make fuzz-ecdsa`.
 
