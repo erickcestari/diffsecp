@@ -158,7 +158,13 @@ broke a target or changed behavior against the baseline.
 
 `.github/workflows/fuzz.yml` fuzzes every target for two hours daily, adds the
 inputs that raise coverage once CI passes on them, and uploads a coverage
-report. A divergence fails the run and uploads its reproducer.
+report. A divergence fails the run without printing it, skips that day's corpus
+update, and uploads its reproducer and logs encrypted to the maintainer's PGP
+key (`ci/maintainer.asc`), since artifacts of a public repository are public:
+
+```sh
+gh run download <run-id> -n reproducers && gpg -d reproducers.tar.gz.gpg | tar -xz
+```
 
 ## Coverage
 
