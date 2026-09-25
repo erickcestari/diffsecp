@@ -53,9 +53,12 @@ bytes around it.
 | `group`          | point addition, doubling and multiplication via a register machine (internal API)      |
 
 The signature targets sign first and then mutate the signature, message or key,
-reaching verify paths random bytes almost never hit. `group` builds its points as
-k·G from fuzzed scalars, so it reaches the exceptional cases of point addition
-(doubling, P + (-P), infinity) that signatures can't.
+reaching verify paths random bytes almost never hit. `ecdsa` also mutates the
+signature's DER encoding, reaching the strict parser, and builds the key from a
+chosen R, so verification recomputes infinity or an x at least the group order,
+which no signer can reach. `group` builds its points as k·G from fuzzed
+scalars, so it reaches the exceptional cases of point addition (doubling,
+P + (-P), infinity) that signatures can't.
 
 ## Variants
 
@@ -118,7 +121,8 @@ as the only global so all variants link into one binary.
 A target writes every result it observes (return codes, serialized outputs) to a
 transcript, and `src/fuzz.c` compares the transcripts byte for byte. Targets must
 be deterministic and free of unspecified behavior, or the harness itself will
-report false divergences.
+report false divergences. Each variant blinds its context with a seed hashed
+from its name, so a result that depends on blinding diverges.
 
 `make selftest` checks the harness itself. It links an extra copy of `guide`
 that flips the last transcript byte and expects every fuzzer to report it, so
