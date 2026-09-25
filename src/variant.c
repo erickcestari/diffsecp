@@ -27,11 +27,15 @@
 static secp256k1_context *variant_ctx;
 
 static void variant_init(void) {
-    /* Blinding never changes results, so a fixed seed keeps runs reproducible. */
-    static const unsigned char seed[32] = "diffsecp context randomization";
+    /* Seeded by the variant's name: builds blind differently, so a result that
+     * depends on blinding diverges, and each build replays the same. */
+    static const unsigned char tag[] = "diffsecp blinding";
+    static const unsigned char name[] = DIFFSECP_STR(DIFFSECP_VARIANT);
+    unsigned char seed[32];
 
     variant_ctx = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
-    if (!secp256k1_context_randomize(variant_ctx, seed)) {
+    if (!secp256k1_tagged_sha256(variant_ctx, seed, tag, sizeof(tag) - 1, name, sizeof(name) - 1) ||
+        !secp256k1_context_randomize(variant_ctx, seed)) {
         abort();
     }
 }

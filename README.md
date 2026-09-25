@@ -118,7 +118,8 @@ as the only global so all variants link into one binary.
 A target writes every result it observes (return codes, serialized outputs) to a
 transcript, and `src/fuzz.c` compares the transcripts byte for byte. Targets must
 be deterministic and free of unspecified behavior, or the harness itself will
-report false divergences.
+report false divergences. Each variant blinds its context with a seed hashed
+from its name, so a result that depends on blinding diverges.
 
 `make selftest` checks the harness itself. It links an extra copy of `guide`
 that flips the last transcript byte and expects every fuzzer to report it, so
