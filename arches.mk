@@ -2,7 +2,7 @@
 # transcript digests against the first. Each needs <arch>_CC, <arch>_CFLAGS and
 # <arch>_RUN (the emulator, empty to run natively), plus <arch>_EXE when the
 # toolchain appends a suffix to executables. Binaries are static, so qemu-user
-# needs no sysroot.
+# needs no sysroot; <arch>_LDFLAGS replaces -static where that can't link.
 #
 # The list mirrors the Guix release targets that run on Linux or Wine, built
 # with the compilers Guix uses: GCC 14, and clang 19 for macOS. Compilers are
@@ -28,8 +28,9 @@ aarch64_CC     := aarch64-linux-gnu-gcc-$(CROSS_GCC_VERSION)
 aarch64_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS)
 aarch64_RUN    := qemu-aarch64
 
-# Stands in for arm64 macOS, which needs Apple's SDK and has no user-mode
-# emulator: the compiler and CPU of its release builds, targeting Linux.
+# The compiler and CPU of arm64 macOS release builds, targeting Linux: macOS
+# needs Apple's SDK and has no user-mode emulator. The macos arch below covers
+# the Darwin ABI and Mach-O on a real Mac.
 aarch64_clang_CC     := $(CROSS_CLANG) --target=aarch64-linux-gnu -mcpu=apple-m1
 aarch64_clang_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS)
 aarch64_clang_RUN    := qemu-aarch64
@@ -54,3 +55,16 @@ win64_CC     := x86_64-w64-mingw32-gcc-$(CROSS_GCC_VERSION)-win32
 win64_CFLAGS := $(LIBSECP_DEFAULT_CFLAGS) $(LIBSECP_ASM_X86_64)
 win64_RUN    := wine
 win64_EXE    := .exe
+
+# Architectures `make cross` can't build from Linux. Each runs natively on its
+# own host with `make native`, which compares its digests with CROSS_REF: CI
+# passes x86_64's from the cross job.
+NATIVE_ARCHES := macos
+
+# arm64 macOS with the selected Xcode's clang, as Homebrew builds Bitcoin Core.
+# Plain char is signed here and unsigned on aarch64 Linux. Apple's linker
+# builds no static executables.
+macos_CC      := xcrun clang
+macos_CFLAGS  := $(LIBSECP_DEFAULT_CFLAGS)
+macos_RUN     :=
+macos_LDFLAGS :=

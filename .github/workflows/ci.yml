@@ -42,3 +42,31 @@ jobs:
           submodules: true
       - name: Selftest and corpus replay on every architecture
         run: make -j"$(nproc)" docker-cross
+      # The reference the macos job compares against.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: x86_64-digests
+          path: build/docker/cross/x86_64/digests
+
+  # macOS has no user-mode emulator, so a real arm64 Mac replays the corpus.
+  macos:
+    needs: cross
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: x86_64-digests
+          path: build/reference
+      # macOS ships GNU make 3.81; Homebrew's current one installs as gmake.
+      - name: Install GNU make
+        run: brew install make
+      - name: Compiler version
+        run: xcrun clang --version | head -n 1
+      - name: Corpus replay on macOS
+        run: gmake -j"$(sysctl -n hw.ncpu)" native CROSS_REF=build/reference/digests

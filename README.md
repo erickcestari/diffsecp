@@ -5,8 +5,8 @@ across builds, architectures and library versions. On x86_64 and aarch64, each
 input runs through every build in one process (compilers, optimization levels,
 arithmetic implementations, table sizes, and libsecp's last release next to
 master), and any difference in results aborts with a reproducer. The corpus the
-fuzzer grows is then replayed on 32-bit ARM, aarch64, riscv64, ppc64, ppc64le
-and Windows, and every result is compared with x86_64.
+fuzzer grows is then replayed on 32-bit ARM, aarch64, riscv64, ppc64, ppc64le,
+Windows and macOS, and every result is compared with x86_64.
 
 Bitcoin nodes run libsecp256k1 built by different compilers for different CPUs:
 Guix release builds use GCC for Linux and Windows and clang for macOS, and
@@ -95,15 +95,23 @@ compared against x86_64.
 
 The architectures follow the Guix release targets that run on Linux or Wine:
 32-bit ARM, aarch64, riscv64, big-endian ppc64 and win64, built with GCC 14 as
-Guix does. macOS needs Apple's SDK and has no user-mode emulator, so
-`aarch64_clang` stands in for arm64 macOS: clang 19 with `-mcpu=apple-m1`,
-targeting Linux. ppc64le is also covered, although Guix currently leaves it out
-over build nondeterminism.
+Guix does. `aarch64_clang` is the compiler and CPU of arm64 macOS release
+builds, clang 19 with `-mcpu=apple-m1`, targeting Linux. ppc64le is also
+covered, although Guix currently leaves it out over build nondeterminism.
 
 ```sh
 make docker-cross           # toolchains from ci/Dockerfile; seeds a missing corpus first
 make cross                  # same, with cross toolchains installed locally
 make docker-cross-selftest  # only the cross selftest, see below
+```
+
+macOS needs Apple's SDK and has no user-mode emulator, so `make native` replays
+it on a real Mac instead: the `macos` entry, built with Xcode's clang, covers
+Mach-O and the Darwin ABI (plain `char` is signed there, unlike on aarch64
+Linux). It needs x86_64's digests from `make cross` elsewhere:
+
+```sh
+gmake native CROSS_REF=path/to/x86_64/digests
 ```
 
 To locate a divergence, dump both transcripts and diff them. The static binaries
@@ -154,9 +162,11 @@ arithmetic instead.
 
 ## CI
 
-`.github/workflows/ci.yml` runs `make check` on x86_64 and aarch64 runners and
-`make docker-cross` on pushes to master and on pull requests, so every change
-replays the corpus. `make check` runs in Debian trixie with GCC 14 and clang 19.
+`.github/workflows/ci.yml` runs `make check` on x86_64 and aarch64 runners,
+`make docker-cross`, and `make native` on an arm64 macOS runner against the
+cross job's x86_64 digests, on pushes to master and on pull requests, so every
+change replays the corpus. `make check` runs in Debian trixie with GCC 14 and
+clang 19.
 
 `.github/workflows/bump-secp256k1.yml` moves `external/secp256k1` to upstream
 master daily, runs CI on the bump and fast-forwards master to it only if CI
