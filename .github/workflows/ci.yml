@@ -35,5 +35,5 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           submodules: true
-      - name: Replay the corpus on every architecture
+      - name: Selftest and corpus replay on every architecture
         run: make -j"$(nproc)" docker-cross
