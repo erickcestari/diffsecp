@@ -95,8 +95,9 @@ targeting Linux. ppc64le is also covered, although Guix currently leaves it out
 over build nondeterminism.
 
 ```sh
-make docker-cross        # toolchains from ci/Dockerfile; seeds a missing corpus first
-make cross               # same, with cross toolchains installed locally
+make docker-cross           # toolchains from ci/Dockerfile; seeds a missing corpus first
+make cross                  # same, with cross toolchains installed locally
+make docker-cross-selftest  # only the cross selftest, see below
 ```
 
 To locate a divergence, dump both transcripts and diff them. The static binaries
@@ -122,7 +123,10 @@ report false divergences.
 `make selftest` checks the harness itself. It links an extra copy of `guide`
 that flips the last transcript byte and expects every fuzzer to report it, so
 it fails if per-variant flags stop reaching the compiler or the comparison
-misses a byte or a variant. `make check` includes it.
+misses a byte or a variant. `make check` includes it. `make cross-selftest`
+does the same for the digests: it replays the corpus on the first architecture
+with that byte flipped and expects every target to diverge. `make cross`
+includes it.
 
 ## Corpus
 

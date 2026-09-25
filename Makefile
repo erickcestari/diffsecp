@@ -45,6 +45,14 @@ REFERENCE       := $(firstword $(VARIANTS))
 selftest_CC     := $($(REFERENCE)_CC)
 selftest_CFLAGS := $($(REFERENCE)_CFLAGS) -DDIFFSECP_SELFTEST
 
+# The same for `make cross`: the reference architecture with one transcript byte
+# flipped, whose digests must differ from the reference's in every target.
+CROSS_REFERENCE       := $(firstword $(ARCHES))
+cross_selftest_CC     := $($(CROSS_REFERENCE)_CC)
+cross_selftest_CFLAGS := $($(CROSS_REFERENCE)_CFLAGS) -DDIFFSECP_SELFTEST
+cross_selftest_RUN    := $($(CROSS_REFERENCE)_RUN)
+cross_selftest_EXE    := $($(CROSS_REFERENCE)_EXE)
+
 VARIANT_OBJS  := $(VARIANTS:%=$(BUILD)/variants/%.o)
 SELFTEST_OBJS := $(VARIANT_OBJS) $(BUILD)/variants/selftest.o
 FUZZERS       := $(TARGETS:%=$(BUILD)/fuzz_%)
@@ -55,7 +63,7 @@ SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) sel
 
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
         fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
-        coverage readme-coverage cross cross-image docker-cross clean FORCE
+        coverage readme-coverage cross cross-selftest cross-image docker-cross docker-cross-selftest clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -220,34 +228,49 @@ $(BUILD)/cross/$(1)/digests: $(BUILD)/cross/$(1)/replay$$($(1)_EXE) FORCE | $(TA
 
 -include $(BUILD)/cross/$(1)/variant.d $(BUILD)/cross/$(1)/replay.d
 endef
-$(foreach a,$(ARCHES),$(eval $(call ARCH_RULE,$(a))))
+$(foreach a,$(ARCHES) cross_selftest,$(eval $(call ARCH_RULE,$(a))))
 
-CROSS_REF := $(BUILD)/cross/$(firstword $(ARCHES))/digests
+CROSS_REF := $(BUILD)/cross/$(CROSS_REFERENCE)/digests
 
-cross: $(ARCHES:%=$(BUILD)/cross/%/digests)
+cross: cross-selftest $(ARCHES:%=$(BUILD)/cross/%/digests)
 	@status=0; \
 	for a in $(wordlist 2,$(words $(ARCHES)),$(ARCHES)); do \
 		d=$(BUILD)/cross/$$a/digests; \
 		if cmp -s $(CROSS_REF) $$d; then \
-			echo "ok   $$a: $$(wc -l < $$d) inputs match $(firstword $(ARCHES))"; \
+			echo "ok   $$a: $$(wc -l < $$d) inputs match $(CROSS_REFERENCE)"; \
 		else \
-			echo "DIVERGE $$a (< $(firstword $(ARCHES)), > $$a):"; diff $(CROSS_REF) $$d | head -n 20; status=1; \
+			echo "DIVERGE $$a (< $(CROSS_REFERENCE), > $$a):"; diff $(CROSS_REF) $$d | head -n 20; status=1; \
 		fi; \
 	done; \
 	exit $$status
 
-# Runs `make cross` in a container with the cross toolchains, qemu-user and
-# wine. The corpus is seeded on the host first, so the image needs no libFuzzer.
+# Proves the digests expose a divergence: fails if they miss a transcript byte,
+# a target or its corpus drops out of the replay, or per-architecture flags stop
+# reaching the compiler.
+cross-selftest: $(CROSS_REF) $(BUILD)/cross/cross_selftest/digests
+	@diff $^ > $(BUILD)/cross/selftest.diff; \
+	for t in $(TARGETS); do \
+		if ! grep -q "^> $$t " $(BUILD)/cross/selftest.diff; then \
+			echo "FAIL cross-selftest: divergence in $$t not reported"; exit 1; \
+		fi; \
+	done; \
+	echo "ok   cross-selftest: $$(grep -c '^>' $(BUILD)/cross/selftest.diff) inputs diverge from $(CROSS_REFERENCE)"
+
+# `make docker-cross` and `make docker-cross-selftest` run their goal in a
+# container with the cross toolchains, qemu-user and wine. The corpus is seeded
+# on the host first, so the image needs no libFuzzer.
+DOCKER_GOALS := cross cross-selftest
+
 cross-image:
 	$(DOCKER) build -t $(CROSS_IMAGE) ci
 
 # HOME lives in the build tree because wine only creates its prefix in a
 # directory the user owns, and keeping it there skips wine's setup next time.
-docker-cross: cross-image | $(TARGETS:%=$(CORPUS)/%)
+$(DOCKER_GOALS:%=docker-%): docker-%: cross-image | $(TARGETS:%=$(CORPUS)/%)
 	mkdir -p $(BUILD)/docker/home
 	$(DOCKER) run --rm -u $$(id -u):$$(id -g) -e HOME=/src/$(BUILD)/docker/home -e WINEDEBUG=-all \
 		-v $(CURDIR):/src -w /src $(CROSS_IMAGE) \
-		make -j$$(nproc) BUILD=$(BUILD)/docker CORPUS=$(CORPUS) cross
+		make -j$$(nproc) BUILD=$(BUILD)/docker CORPUS=$(CORPUS) $*
 
 $(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage:
 	mkdir -p $@
