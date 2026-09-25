@@ -22,6 +22,7 @@
 
 #include "diffsecp.h"
 #include "reader.h"
+#include "sha256.h"
 #include "transcript.h"
 
 static secp256k1_context *variant_ctx;
@@ -34,6 +35,9 @@ static void variant_init(void) {
     unsigned char seed[32];
 
     variant_ctx = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
+#ifdef DIFFSECP_SHA256
+    secp256k1_context_set_sha256_compression(variant_ctx, sha256_compress);
+#endif
     if (!secp256k1_tagged_sha256(variant_ctx, seed, tag, sizeof(tag) - 1, name, sizeof(name) - 1) ||
         !secp256k1_context_randomize(variant_ctx, seed)) {
         abort();
