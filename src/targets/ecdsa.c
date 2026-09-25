@@ -6,13 +6,14 @@
  *
  * Input: mode, msg[32], then seckey[32] (+ ndata[32]), or R's kind, x[32] and
  * sig64 to construct the key from, or raw pubkey and sig64; then mutations, and
- * the rest is parsed as a DER signature. */
+ * the rest is parsed as a DER signature, after sig64's DER encoding in DER mode. */
 
 enum ecdsa_mode {
     ECDSA_SIGN = 1 << 0,
     ECDSA_COMPRESSED = 1 << 1,
     ECDSA_NDATA = 1 << 2,      /* sign with extra nonce data */
-    ECDSA_CONSTRUCT = 1 << 3   /* without ECDSA_SIGN, construct the key from R */
+    ECDSA_CONSTRUCT = 1 << 3,  /* without ECDSA_SIGN, construct the key from R */
+    ECDSA_DER = 1 << 4         /* DER-encode sig64, so mutations reach the strict parser */
 };
 
 enum ecdsa_r {
@@ -21,6 +22,9 @@ enum ecdsa_r {
     ECDSA_R_ABOVE_ORDER,
     ECDSA_R_COUNT
 };
+
+/* sig64's DER encoding, one byte inserted per mutation, and the rest of the input. */
+#define ECDSA_DER_MAX (72 + 8 + DIFFSECP_INPUT_MAX)
 
 static void ecdsa_record_pubkey(struct transcript *t, const secp256k1_pubkey *pk) {
     unsigned char ser[65];
@@ -121,8 +125,8 @@ static int ecdsa_construct(unsigned char *pkser, size_t pklen, unsigned char *si
 static size_t target_ecdsa(const unsigned char *in, size_t len, unsigned char *out, size_t cap) {
     struct reader r = {in, len};
     struct transcript t = {out, cap, 0};
-    unsigned char msg[32], seckey[32], ndata[32], x32[32], pkser[65], sig64[64];
-    size_t pklen;
+    unsigned char msg[32], seckey[32], ndata[32], x32[32], pkser[65], sig64[64], der[ECDSA_DER_MAX];
+    size_t pklen, derlen, tail;
     secp256k1_pubkey pk;
     secp256k1_ecdsa_signature sig;
     unsigned int mode, kind, nmut, i;
@@ -163,16 +167,38 @@ static size_t target_ecdsa(const unsigned char *in, size_t len, unsigned char *o
         reader_take(&r, sig64, sizeof(sig64));
     }
 
+    derlen = 0;
+    if ((mode & ECDSA_DER) && secp256k1_ecdsa_signature_parse_compact(variant_ctx, &sig, sig64)) {
+        derlen = ECDSA_DER_MAX;
+        transcript_int(&t, secp256k1_ecdsa_signature_serialize_der(variant_ctx, der, &derlen, &sig));
+    }
+
     nmut = reader_u8(&r) % 8;
     for (i = 0; i < nmut; i++) {
-        unsigned int which = reader_u8(&r) % 3, pos = reader_u8(&r), mask = reader_u8(&r);
+        unsigned int which = reader_u8(&r) % 5, pos = reader_u8(&r), mask = reader_u8(&r);
 
         switch (which) {
         case 0: sig64[pos % sizeof(sig64)] ^= (unsigned char)mask; break;
         case 1: msg[pos % sizeof(msg)] ^= (unsigned char)mask; break;
-        default: pkser[pos % pklen] ^= (unsigned char)mask; break;
+        case 2: pkser[pos % pklen] ^= (unsigned char)mask; break;
+        case 3:
+            if (derlen > 0) {
+                der[pos % derlen] ^= (unsigned char)mask;
+            }
+            break;
+        default:
+            /* Inserting reaches padding and long-form lengths, which XOR can't. */
+            pos %= derlen + 1;
+            memmove(der + pos + 1, der + pos, derlen - pos);
+            der[pos] = (unsigned char)mask;
+            derlen++;
+            break;
         }
     }
+    /* Trailing bytes, or the whole encoding outside DER mode. */
+    tail = r.left;
+    reader_take(&r, der + derlen, tail);
+    derlen += tail;
 
     pk_ok = secp256k1_ec_pubkey_parse(variant_ctx, &pk, pkser, pklen);
     transcript_int(&t, pk_ok);
@@ -186,13 +212,13 @@ static size_t target_ecdsa(const unsigned char *in, size_t len, unsigned char *o
         ecdsa_record_checks(&t, &sig, msg, pk_ok ? &pk : NULL);
     }
 
-    ok = secp256k1_ecdsa_signature_parse_der(variant_ctx, &sig, r.p, r.left);
+    ok = secp256k1_ecdsa_signature_parse_der(variant_ctx, &sig, der, derlen);
     transcript_int(&t, ok);
     if (ok) {
         ecdsa_record_checks(&t, &sig, msg, pk_ok ? &pk : NULL);
     }
 
-    ok = ecdsa_signature_parse_der_lax(variant_ctx, &sig, r.p, r.left);
+    ok = ecdsa_signature_parse_der_lax(variant_ctx, &sig, der, derlen);
     transcript_int(&t, ok);
     if (ok) {
         ecdsa_record_checks(&t, &sig, msg, pk_ok ? &pk : NULL);
