@@ -170,7 +170,8 @@ gh run download <run-id> -n reproducers && gpg -d reproducers.tar.gz.gpg | tar -
 `.github/workflows/latest-compilers.yml` builds every variant with the newest
 GCC and clang from Arch Linux weekly, then runs `make check` and fuzzes every
 target for two hours: distros ship new compilers long before Guix does, and new
-optimizer bugs show up there first. It never touches the corpus.
+optimizer bugs show up there first. It never touches the corpus, and uploads
+its reproducers encrypted the same way.
 
 ## Coverage
 
