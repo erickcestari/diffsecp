@@ -13,7 +13,7 @@
 # it, and the linker drops the tables of all but one sanitized variant.
 
 VARIANTS := guide guide_int64 \
-            gcc_release clang_release baseline \
+            gcc_release clang_release gcc_release_sha256 baseline \
             gcc_O0 clang_Os \
             gcc_O3_native clang_O3_native \
             gcc_O2_int64 clang_O2_int64 gcc_O2_int128_struct \
@@ -44,6 +44,12 @@ gcc_release_CFLAGS := $(RELEASE_CFLAGS)
 
 clang_release_CC     := $(CLANG)
 clang_release_CFLAGS := $(RELEASE_CFLAGS)
+
+# Routes every SHA256 through the harness's own compression function
+# (src/sha256.h), as Bitcoin Core routes them through its hardware-accelerated
+# ones with secp256k1_context_set_sha256_compression.
+gcc_release_sha256_CC     := $(GCC)
+gcc_release_sha256_CFLAGS := $(RELEASE_CFLAGS) -DDIFFSECP_SHA256
 
 # libsecp v0.8.0, the oldest release that builds every target, built like
 # gcc_release: any behavior change SECP makes since then shows up as a

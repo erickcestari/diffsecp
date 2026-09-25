@@ -70,6 +70,9 @@ misusing internal APIs. `guide_int64` does the same on the int64 arithmetic
 fewer executions per second. The others cover release builds with GCC and clang,
 optimizer extremes (`-O0`, `-Os`, `-O3 -march=native`), each arithmetic
 implementation (int128, int128_struct, int64) and the smallest tables.
+`gcc_release_sha256` installs the harness's own SHA256 compression function
+with `secp256k1_context_set_sha256_compression`, as Bitcoin Core installs its
+hardware-accelerated ones, so every hash-dependent result goes through it.
 `baseline` builds `external/secp256k1-baseline`, libsecp v0.8.0, the oldest
 release that builds every target, so any behavior change master makes since
 then shows up as a divergence. It stays put: move it only when a target needs a
