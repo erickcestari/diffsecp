@@ -69,7 +69,7 @@ cross_selftest_EXE    := $($(CROSS_REFERENCE)_EXE)
 
 VARIANT_OBJS  := $(VARIANTS:%=$(BUILD)/variants/%.o)
 SELFTEST_OBJS := $(VARIANT_OBJS) $(BUILD)/variants/selftest.o
-MUTANT_OBJ    := $(BUILD)/variants/mutant.o
+MUTANT_OBJS   := $(MUTANT_BUILDS:%=$(BUILD)/variants/%.o)
 MUTANTS_H     := $(BUILD)/mutants/mutants.h
 FUZZERS       := $(TARGETS:%=$(BUILD)/fuzz_%)
 FUZZ_COMPILE   = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=fuzzer,address,undefined \
@@ -78,6 +78,7 @@ FUZZ_COMPILE   = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=fuzzer,address,undef
 value_profile  = $(if $(filter $(1),$(FUZZ_VALUE_PROFILE)),-use_value_profile=1)
 VARIANTS_H          := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS),X($(v)))
 SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) selftest,X($(v)))
+MUTANT_BUILDS_H     := \#define DIFFSECP_MUTANT_BUILDS(X) $(foreach v,$(MUTANT_BUILDS),X($(v)))
 
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
         fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
@@ -105,31 +106,33 @@ $(BUILD)/variants/$(1).o: src/variant.c $(BUILD)/variants/$(1).flags
 	$$($(1)_COMPILE) -MMD -MP -MT $$@ -MF $$(@:.o=.d) -c $$< -o $$(@:.o=.raw.o)
 	$$(OBJCOPY) --wildcard -L 'secp256k1_*' -L 'ecdsa_*' -L '__odr_asan_gen_*' $$(@:.o=.raw.o) $$@
 endef
-$(foreach v,$(VARIANTS) selftest mutant,$(eval $(call VARIANT_RULE,$(v))))
+$(foreach v,$(VARIANTS) selftest $(MUTANT_BUILDS),$(eval $(call VARIANT_RULE,$(v))))
 
 # The mutant schemata's libsecp tree, and mutants.h naming its mutants for
 # src/fuzz.c. gen.py rewrites only files whose content changes.
 $(MUTANTS_H): FORCE | $(BUILD)
 	@$(PYTHON) mutants/gen.py $(SECP) $(BUILD)/mutants
 
-$(MUTANT_OBJ): $(MUTANTS_H)
+$(MUTANT_OBJS): $(MUTANTS_H)
 
 $(BUILD)/variants.h: FORCE | $(BUILD)
-	@echo '$(VARIANTS_H)' | cmp -s - $@ || echo '$(VARIANTS_H)' > $@
+	@printf '%s\n' '$(VARIANTS_H)' '$(MUTANT_BUILDS_H)' | cmp -s - $@ || \
+		printf '%s\n' '$(VARIANTS_H)' '$(MUTANT_BUILDS_H)' > $@
 
 $(BUILD)/selftest/variants.h: FORCE | $(BUILD)/selftest
-	@echo '$(SELFTEST_VARIANTS_H)' | cmp -s - $@ || echo '$(SELFTEST_VARIANTS_H)' > $@
+	@printf '%s\n' '$(SELFTEST_VARIANTS_H)' '$(MUTANT_BUILDS_H)' | cmp -s - $@ || \
+		printf '%s\n' '$(SELFTEST_VARIANTS_H)' '$(MUTANT_BUILDS_H)' > $@
 
 $(BUILD)/fuzz.flags: FORCE | $(BUILD)
 	@echo '$(FUZZ_COMPILE)' | cmp -s - $@ || echo '$(FUZZ_COMPILE)' > $@
 
 $(BUILD)/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/variants.h $(MUTANTS_H) $(BUILD)/fuzz.flags \
-                 $(VARIANT_OBJS) $(MUTANT_OBJ)
-	$(FUZZ_COMPILE) -I$(BUILD) -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) $(MUTANT_OBJ) -o $@
+                 $(VARIANT_OBJS) $(MUTANT_OBJS)
+	$(FUZZ_COMPILE) -I$(BUILD) -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) $(MUTANT_OBJS) -o $@
 
 $(BUILD)/selftest/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h $(MUTANTS_H) $(BUILD)/fuzz.flags \
-                          $(SELFTEST_OBJS) $(MUTANT_OBJ)
-	$(FUZZ_COMPILE) -I$(BUILD)/selftest -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) $(MUTANT_OBJ) -o $@
+                          $(SELFTEST_OBJS) $(MUTANT_OBJS)
+	$(FUZZ_COMPILE) -I$(BUILD)/selftest -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) $(MUTANT_OBJS) -o $@
 
 # Replays the corpus through every variant, then fuzzes briefly from it: catches
 # build breakage, harness contract violations and divergences on known inputs.
@@ -235,14 +238,14 @@ $(BUILD)/libafl/flags: FORCE | $(BUILD)/libafl
 	@echo '$(LIBAFL_COMPILE)' | cmp -s - $@ || echo '$(LIBAFL_COMPILE)' > $@
 
 $(BUILD)/libafl_%: src/fuzz.c src/diffsecp.h $(BUILD)/variants.h $(MUTANTS_H) $(BUILD)/libafl/flags \
-                   $(VARIANT_OBJS) $(MUTANT_OBJ) $(LIBAFL_LIB)
-	$(LIBAFL_COMPILE) -I$(BUILD) -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) $(MUTANT_OBJ) \
+                   $(VARIANT_OBJS) $(MUTANT_OBJS) $(LIBAFL_LIB)
+	$(LIBAFL_COMPILE) -I$(BUILD) -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) $(MUTANT_OBJS) \
 		$(LIBAFL_LINK) -o $@
 
 $(BUILD)/selftest/libafl_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h $(MUTANTS_H) \
-                            $(BUILD)/libafl/flags $(SELFTEST_OBJS) $(MUTANT_OBJ) $(LIBAFL_LIB)
+                            $(BUILD)/libafl/flags $(SELFTEST_OBJS) $(MUTANT_OBJS) $(LIBAFL_LIB)
 	$(LIBAFL_COMPILE) -I$(BUILD)/selftest -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) \
-		$(MUTANT_OBJ) $(LIBAFL_LINK) -o $@
+		$(MUTANT_OBJS) $(LIBAFL_LINK) -o $@
 
 # The core a target fuzzes on unless LIBAFL_CORES says otherwise: its position
 # in TARGETS, wrapped at the core count, so `make -j libafl-fuzz` spreads them.
@@ -389,4 +392,4 @@ $(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage $(BUILD)/libafl:
 clean:
 	rm -rf $(BUILD)
 
--include $(SELFTEST_OBJS:.o=.d) $(MUTANT_OBJ:.o=.d) $(BUILD)/coverage/variant.d $(BUILD)/coverage/replay.d
+-include $(SELFTEST_OBJS:.o=.d) $(MUTANT_OBJS:.o=.d) $(BUILD)/coverage/variant.d $(BUILD)/coverage/replay.d

@@ -19,14 +19,16 @@
 
 #define DECLARE(name) extern const struct diffsecp_variant diffsecp_variant_##name;
 DIFFSECP_VARIANTS(DECLARE)
-DECLARE(mutant)
+DIFFSECP_MUTANT_BUILDS(DECLARE)
 #undef DECLARE
 
 #define ENTRY(name) &diffsecp_variant_##name,
 static const struct diffsecp_variant *const variants[] = {DIFFSECP_VARIANTS(ENTRY)};
+static const struct diffsecp_variant *const mutant_builds[] = {DIFFSECP_MUTANT_BUILDS(ENTRY)};
 #undef ENTRY
 
 #define NVARIANTS (sizeof(variants) / sizeof(variants[0]))
+#define NMUTANT_BUILDS (sizeof(mutant_builds) / sizeof(mutant_builds[0]))
 
 static unsigned char transcripts[NVARIANTS][DIFFSECP_TRANSCRIPT_MAX];
 static size_t lengths[NVARIANTS];
@@ -34,12 +36,12 @@ static size_t lengths[NVARIANTS];
 /* For fuzzers that link this driver (libafl/), which otherwise grow inputs past it. */
 const size_t diffsecp_input_max = DIFFSECP_INPUT_MAX;
 
-/* The mutant schemata runs once with no mutant on, flagging in
- * diffsecp_mutant_infected each mutant the input's values trigger, then once per
- * flagged mutant not yet killed, which it kills if the transcript differs or an
- * API call rejects its arguments (diffsecp_mutant_illegal). Both arrays sit in
- * libFuzzer's extra counters, so an input that triggers or kills a new mutant
- * counts as new coverage. */
+/* Each mutant schemata build runs once with no mutant on, flagging in
+ * diffsecp_mutant_infected each mutant the input's values trigger in its code,
+ * then once per flagged mutant not yet killed, which it kills if the transcript
+ * differs or an API call rejects its arguments (diffsecp_mutant_illegal). Both
+ * arrays sit in libFuzzer's extra counters, so an input that triggers or kills a
+ * new mutant counts as new coverage. */
 int diffsecp_mutant = DIFFSECP_MUTANT_DETECT;
 int diffsecp_mutant_illegal;
 unsigned char diffsecp_mutant_infected[DIFFSECP_MUTANT_COUNT]
@@ -124,40 +126,53 @@ static void report_mutants(void) {
     }
 }
 
-static void run_mutants(const uint8_t *data, size_t size) {
-    size_t k, len;
+static size_t run_schemata(const struct diffsecp_variant *build, int mutant, const uint8_t *data, size_t size) {
+    size_t len;
 
-    memset(diffsecp_mutant_infected, 0, sizeof(diffsecp_mutant_infected));
-    diffsecp_mutant = DIFFSECP_MUTANT_DETECT;
+    diffsecp_mutant = mutant;
     diffsecp_mutant_illegal = 0;
-    len = diffsecp_variant_mutant.DIFFSECP_TARGET(data, size, mutant_transcript, sizeof(mutant_transcript));
-    /* With no mutant on, the schemata is one more build that must agree. */
-    if (diffsecp_mutant_illegal) {
-        fprintf(stderr, "diffsecp: target %s calls the API illegally in %s with no mutant on\n",
-                DIFFSECP_STR(DIFFSECP_TARGET), diffsecp_variant_mutant.name);
-        abort();
-    }
-    if (!matches_reference(mutant_transcript, len)) {
-        report_divergence(diffsecp_variant_mutant.name, mutant_transcript, len);
-    }
+    len = build->DIFFSECP_TARGET(data, size, mutant_transcript, sizeof(mutant_transcript));
+    diffsecp_mutant = DIFFSECP_MUTANT_DETECT;
+    return len;
+}
 
-    for (k = 0; k < DIFFSECP_MUTANT_COUNT; k++) {
-        if (!diffsecp_mutant_infected[k]) {
-            continue;
+static void run_mutants(const uint8_t *data, size_t size) {
+    unsigned char infected[DIFFSECP_MUTANT_COUNT] = {0};
+    size_t b, k, len;
+
+    for (b = 0; b < NMUTANT_BUILDS; b++) {
+        const struct diffsecp_variant *build = mutant_builds[b];
+
+        memset(diffsecp_mutant_infected, 0, sizeof(diffsecp_mutant_infected));
+        len = run_schemata(build, DIFFSECP_MUTANT_DETECT, data, size);
+        /* With no mutant on, a schemata build is one more build that must agree. */
+        if (diffsecp_mutant_illegal) {
+            fprintf(stderr, "diffsecp: target %s calls the API illegally in %s with no mutant on\n",
+                    DIFFSECP_STR(DIFFSECP_TARGET), build->name);
+            abort();
         }
-        mutant_ever_infected[k] = 1;
-        if (mutant_ever_killed[k]) {
-            continue;
+        if (!matches_reference(mutant_transcript, len)) {
+            report_divergence(build->name, mutant_transcript, len);
         }
-        diffsecp_mutant = (int)k;
-        diffsecp_mutant_illegal = 0;
-        len = diffsecp_variant_mutant.DIFFSECP_TARGET(data, size, mutant_transcript, sizeof(mutant_transcript));
-        diffsecp_mutant = DIFFSECP_MUTANT_DETECT;
-        if (diffsecp_mutant_illegal || !matches_reference(mutant_transcript, len)) {
-            diffsecp_mutant_killed[k] = 1;
-            mutant_ever_killed[k] = 1;
+
+        for (k = 0; k < DIFFSECP_MUTANT_COUNT; k++) {
+            if (!diffsecp_mutant_infected[k]) {
+                continue;
+            }
+            infected[k] = 1;
+            mutant_ever_infected[k] = 1;
+            if (mutant_ever_killed[k]) {
+                continue;
+            }
+            len = run_schemata(build, (int)k, data, size);
+            if (diffsecp_mutant_illegal || !matches_reference(mutant_transcript, len)) {
+                diffsecp_mutant_killed[k] = 1;
+                mutant_ever_killed[k] = 1;
+            }
         }
     }
+    /* What the fuzzer observes: the mutants any build flagged. */
+    memcpy(diffsecp_mutant_infected, infected, sizeof(infected));
 }
 
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
@@ -177,7 +192,9 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
     for (i = 0; i < NVARIANTS; i++) {
         variants[i]->init();
     }
-    diffsecp_variant_mutant.init();
+    for (i = 0; i < NMUTANT_BUILDS; i++) {
+        mutant_builds[i]->init();
+    }
     return 0;
 }
 

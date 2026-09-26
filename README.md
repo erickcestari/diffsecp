@@ -173,24 +173,28 @@ arithmetic instead.
 
 Coverage can't tell whether the fuzzer fed the values where arithmetic goes
 wrong, such as p, n and (n-1)/2. `mutants/mutants.txt` lists bugs that show only
-at such values, like `>=` turned into `>` in the check that rejects field
-elements at least p. `mutants/gen.py` builds all of them into one extra build,
-`mutant`, each behind a run-time switch. Only the 5x52 field and 4x64 scalar
-are mutated, since those are what x86_64 builds run.
+at such values. One example is `>=` turned into `>` in the check that rejects
+field elements at least p. Others cover key tweaks that sum to zero or
+infinity, ElligatorSwift's special cases, the exceptional cases of point
+addition, strict DER and scalar reduction. `mutants/gen.py` puts all of them
+into one copy of libsecp, each behind a run-time switch. That copy is built
+twice, as `mutant` on the int128 code and `mutant_int64` on the int64 code, so
+both field and scalar implementations have mutants.
 
-After the comparison, `src/fuzz.c` runs `mutant` once with no mutant on, which
-flags the mutants whose values the input reaches. It then runs once per flagged
-mutant not yet killed. A mutant is killed when its transcript differs or an API
-call rejects its arguments. Flagging or killing a new mutant counts as coverage,
-so `make fuzz` keeps the inputs that reach those values and `make merge` commits
-them, where every architecture replays them. It costs about 8% of executions on
-`field`.
+After the comparison, `src/fuzz.c` runs each of those builds once with no
+mutant on, which flags the mutants whose values the input reaches. It then runs
+once per flagged mutant not yet killed. A mutant is killed when its transcript
+differs or an API call rejects its arguments. Flagging or killing a new mutant
+counts as coverage, so `make fuzz` keeps the inputs that reach those values and
+`make merge` commits them, where every architecture replays them. It costs
+about 12% of executions on `ecdsa`.
 
 `make mutation-score` replays the corpus and lists each mutant not killed. A
 masked mutant was triggered, so some input made its expression evaluate
 differently, but no transcript changed: the rest of the computation cancelled
-the difference, or nothing recorded it. A missed one was never triggered. `DIFFSECP_MUTANTS=off` fuzzes
-without the mutants, so an evaluation can score a run by what didn't steer it.
+the difference, or nothing recorded it. A missed one was never triggered.
+`DIFFSECP_MUTANTS=off` fuzzes without the mutants, so an evaluation can score a
+run by what didn't steer it.
 
 ## LibAFL
 

@@ -1,12 +1,13 @@
 # Mutations mutants/gen.py builds into the mutant schemata, run by src/fuzz.c.
 # Each is a bug that shows only for a handful of values, so killing it proves
-# the corpus reaches those values and a transcript records the result. Only the
-# 5x52 field and 4x64 scalar are mutated: the schemata is built for x86_64.
+# the corpus reaches those values and a transcript records the result. The
+# schemata is built twice, as the int128 and the int64 code, so a mutant in
+# either implementation runs.
 #
 # A record is "FILE FUNCTION" at the start of a line, then the original and the
 # mutated expression on indented lines. The original must appear exactly once
-# in FUNCTION's body. Mutate compares and constants, never a loop bound, so no
-# mutant can hang or fault.
+# in FUNCTION's body. Mutate compares and constants, never a loop bound or a
+# check that keeps a copy in bounds, so no mutant can hang or fault.
 
 # set_b32_limit rejects x >= p: the planted bug, which accepts x = p.
 src/field_5x52_impl.h secp256k1_fe_impl_set_b32_limit
@@ -59,3 +60,101 @@ src/scalar_4x64_impl.h secp256k1_scalar_is_high
 src/scalar_4x64_impl.h secp256k1_scalar_is_high
     (a->d[3] > SECP256K1_N_H_3)
     (a->d[3] >= SECP256K1_N_H_3)
+
+# Results that must be rejected when a sum or product lands exactly on zero or
+# infinity: a tweak of minus the key, or of zero.
+src/eckey_impl.h secp256k1_eckey_seckey_tweak_add
+    !secp256k1_scalar_is_zero(key)
+    1
+
+src/eckey_impl.h secp256k1_eckey_pubkey_tweak_add
+    secp256k1_gej_is_infinity(&pt)
+    0
+
+src/eckey_impl.h secp256k1_eckey_seckey_tweak_mul
+    !secp256k1_scalar_is_zero(tweak)
+    1
+
+src/eckey_impl.h secp256k1_eckey_pubkey_tweak_mul
+    secp256k1_scalar_is_zero(tweak)
+    0
+
+# ElligatorSwift's special cases: u = 0, t = 0, and u^3 + 7 + t^2 = 0.
+src/modules/ellswift/main_impl.h secp256k1_ellswift_xswiftec_frac_var
+    secp256k1_fe_normalizes_to_zero_var(&u1)
+    0
+
+src/modules/ellswift/main_impl.h secp256k1_ellswift_xswiftec_frac_var
+    secp256k1_fe_normalizes_to_zero_var(t)
+    0
+
+src/modules/ellswift/main_impl.h secp256k1_ellswift_xswiftec_frac_var
+    secp256k1_fe_normalizes_to_zero_var(&p)
+    0
+
+# The exceptional cases of point addition: P + -P taken for a doubling, P + P
+# for infinity, and the constant-time addition's y1 = -y2 and a = -b cases.
+src/group_impl.h secp256k1_gej_impl_add_var
+    secp256k1_fe_normalizes_to_zero_var(&i)
+    1
+
+src/group_impl.h secp256k1_gej_impl_add_ge_var
+    secp256k1_fe_normalizes_to_zero_var(&i)
+    0
+
+src/group_impl.h secp256k1_gej_impl_add_ge
+    secp256k1_fe_normalizes_to_zero(&m)
+    0
+
+src/group_impl.h secp256k1_gej_impl_add_ge
+    secp256k1_fe_normalizes_to_zero(&r->z)
+    0
+
+# Strict DER, which consensus depends on: a long-form length of 127, a two-byte
+# integer with a redundant zero byte, and a sequence shorter than its contents.
+src/ecdsa_impl.h secp256k1_der_read_len
+    *len < 128
+    *len < 127
+
+src/ecdsa_impl.h secp256k1_der_parse_integer
+    **sig == 0x00 && rlen > 1
+    **sig == 0x00 && rlen > 2
+
+src/ecdsa_impl.h secp256k1_ecdsa_sig_parse
+    rlen != (size_t)(sigend - sig)
+    rlen > (size_t)(sigend - sig)
+
+# The final reduction of a 512-bit scalar product misses a result in [n, 2^256).
+src/scalar_4x64_impl.h secp256k1_scalar_reduce_512
+    c + secp256k1_scalar_check_overflow(r)
+    c
+
+# The same boundaries in the int64 code. The 10x26 field compares the low limbs
+# with p's through a carry out of + 0x3D1, so + 0x3D0 misses x = p.
+src/field_10x26_impl.h secp256k1_fe_impl_set_b32_limit
+    (r->n[0] + 0x3D1UL)
+    (r->n[0] + 0x3D0UL)
+
+src/field_10x26_impl.h secp256k1_fe_impl_normalize
+    (t0 + 0x3D1UL)
+    (t0 + 0x3D0UL)
+
+src/field_10x26_impl.h secp256k1_fe_impl_normalize_var
+    (t0 + 0x3D1UL)
+    (t0 + 0x3D0UL)
+
+src/field_10x26_impl.h secp256k1_fe_impl_normalizes_to_zero
+    (z0 == 0) | (z1 == 0x3FFFFFFUL)
+    (z0 == 0)
+
+src/field_10x26_impl.h secp256k1_fe_impl_normalizes_to_zero_var
+    (z0 == 0) | (z1 == 0x3FFFFFFUL)
+    (z0 == 0)
+
+src/scalar_8x32_impl.h secp256k1_scalar_check_overflow
+    (a->d[0] >= SECP256K1_N_0)
+    (a->d[0] > SECP256K1_N_0)
+
+src/scalar_8x32_impl.h secp256k1_scalar_is_high
+    (a->d[0] > SECP256K1_N_H_0)
+    (a->d[0] >= SECP256K1_N_H_0)
