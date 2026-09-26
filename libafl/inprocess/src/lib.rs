@@ -41,9 +41,8 @@ use libafl_targets::{
     CmpLogObserver, extra_counters, libfuzzer_initialize, libfuzzer_test_one_input,
 };
 
-mod operands;
 mod oracle;
-use operands::{OperandsStage, U256Mutator};
+use common::operands::{OperandsStage, U256Mutator};
 use oracle::{Divergence, Oracle, OracleStage};
 
 unsafe extern "C" {

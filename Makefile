@@ -36,6 +36,14 @@ LIBAFL_ARGS  ?=
 ORACLE_ARCHES ?=
 ORACLE_DIR    ?= $(BUILD)/cross
 ORACLE_RATE   ?= 0.01
+# `make qemu-fuzz`: the architecture libafl/qemu emulates, whose guest build is
+# in GUEST_DIR, from `make cross-guests` (or `make docker-cross-guests` with
+# GUEST_DIR=$(BUILD)/docker/cross).
+QEMU_ARCH ?= aarch64
+GUEST_DIR ?= $(BUILD)/cross
+# Inputs `make qemu-merge` keeps for reaching another architecture's machine
+# code where the corpus doesn't: <arch>/<target>, replayed with the corpus.
+CORPUS_ARCH ?= corpus-arch
 DOCKER      ?= docker
 CROSS_IMAGE ?= diffsecp-cross
 # `make coverage` builds with this variant's flags minus its sanitizers, and
@@ -74,6 +82,11 @@ cross_selftest_CFLAGS := $($(CROSS_REFERENCE)_CFLAGS) -DDIFFSECP_SELFTEST
 cross_selftest_RUN    := $($(CROSS_REFERENCE)_RUN)
 cross_selftest_EXE    := $($(CROSS_REFERENCE)_EXE)
 
+# The same for `make qemu-selftest`: an aarch64 guest with the byte flipped.
+qemu_selftest_CC     := $(aarch64_CC)
+qemu_selftest_CFLAGS := $(aarch64_CFLAGS) -DDIFFSECP_SELFTEST
+qemu_selftest_RUN    := $(aarch64_RUN)
+
 VARIANT_OBJS  := $(VARIANTS:%=$(BUILD)/variants/%.o)
 SELFTEST_OBJS := $(VARIANT_OBJS) $(BUILD)/variants/selftest.o
 MUTANT_OBJS   := $(MUTANT_BUILDS:%=$(BUILD)/variants/%.o)
@@ -90,8 +103,10 @@ MUTANT_BUILDS_H     := \#define DIFFSECP_MUTANT_BUILDS(X) $(foreach v,$(MUTANT_B
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
         fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
         mutation-score libafl-fuzz $(TARGETS:%=libafl-fuzz-%) libafl-selftest $(TARGETS:%=libafl-selftest-%) \
-        libafl-oracle-selftest coverage readme-coverage cross cross-selftest cross-replays cross-image \
-        docker-cross docker-cross-selftest docker-cross-replays clean FORCE
+        libafl-oracle-selftest qemu-fuzz $(TARGETS:%=qemu-fuzz-%) qemu-merge $(TARGETS:%=qemu-merge-%) \
+        qemu-selftest coverage readme-coverage \
+        cross cross-selftest cross-replays cross-guests cross-image docker-cross docker-cross-selftest \
+        docker-cross-replays docker-cross-guests clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -151,7 +166,7 @@ check: selftest $(TARGETS:%=check-%)
 $(TARGETS:%=check-%): check-%: $(BUILD)/fuzz_% | $(CORPUS)/%
 	@log=$(BUILD)/$@.log; new=$(BUILD)/$@.new; \
 	rm -rf $$new && mkdir -p $$new; \
-	if ! $< -runs=$(SMOKE_RUNS) -seed=1 $$new $(CORPUS)/$* > $$log 2>&1; then \
+	if ! $< -runs=$(SMOKE_RUNS) -seed=1 $$new $(CORPUS)/$* $(wildcard $(CORPUS_ARCH)/*/$*) > $$log 2>&1; then \
 		cat $$log; echo "FAIL $*"; exit 1; \
 	fi; \
 	echo "ok   $*: $$(tail -n 1 $$log)"
@@ -310,6 +325,81 @@ libafl-oracle-selftest: $(BUILD)/libafl_field | $(CORPUS)/field
 	fi; \
 	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
 
+# The QEMU fuzzer (libafl/qemu): a target built for another architecture runs
+# under libafl_qemu, steered by coverage of that architecture's machine code, and
+# each transcript is compared with the reference, src/guest.c built for the host.
+# libafl_qemu builds QEMU for one architecture at a time, so each gets its own
+# cargo build; aarch64_clang runs on the aarch64 one. It has no ppc64.
+QEMU_ARCHES              := arm aarch64 aarch64_clang riscv64
+QEMU_FEATURE_arm         := arm
+QEMU_FEATURE_aarch64     := aarch64
+QEMU_FEATURE_aarch64_clang := aarch64
+QEMU_FEATURE_riscv64     := riscv64
+QEMU_FEATURE_qemu_selftest := aarch64
+qemu_fuzzer = $(BUILD)/qemu/$(QEMU_FEATURE_$(1))/release/diffsecp_qemu
+
+REFERENCE_COMPILE = $(GCC) $(COMMON_CFLAGS) $(RELEASE_CFLAGS) -I$(SECP) -I$(SECP)/include \
+                    -DDIFFSECP_VARIANT=reference -DDIFFSECP_REFERENCE -DDIFFSECP_NOTE_READS
+
+$(BUILD)/qemu/reference/flags: FORCE | $(BUILD)/qemu/reference
+	@echo '$(REFERENCE_COMPILE)' | cmp -s - $@ || echo '$(REFERENCE_COMPILE)' > $@
+
+$(BUILD)/qemu/reference/%.o: src/%.c $(BUILD)/qemu/reference/flags
+	$(REFERENCE_COMPILE) -MMD -MP -MT $@ -MF $(@:.o=.d) -c $< -o $@
+
+$(BUILD)/qemu/reference/libdiffsecp_reference.a: $(BUILD)/qemu/reference/variant.o $(BUILD)/qemu/reference/guest.o
+	rm -f $@ && ar rcs $@ $^
+
+# cargo decides what to rebuild; QEMU itself is built once per target directory.
+# The pinned QEMU redefines FUTEX_CMD_MASK, which newer kernel headers define,
+# and builds with -Werror.
+$(BUILD)/qemu/%/release/diffsecp_qemu: $(BUILD)/qemu/reference/libdiffsecp_reference.a FORCE
+	CFLAGS=-Wno-macro-redefined DIFFSECP_REFERENCE_DIR=$(abspath $(BUILD)/qemu/reference) \
+		$(CARGO) build --release --quiet \
+		--manifest-path libafl/Cargo.toml -p diffsecp_qemu --features $* --target-dir $(BUILD)/qemu/$*
+
+# Like libafl-fuzz-%, on QEMU_ARCH. New inputs go to $(BUILD)/new-<arch>/<target>
+# and reproducers to $(BUILD)/crashes as <target>-<arch>-*.
+qemu-fuzz: $(TARGETS:%=qemu-fuzz-%)
+
+$(TARGETS:%=qemu-fuzz-%): qemu-fuzz-%: $(call qemu_fuzzer,$(QEMU_ARCH)) | $(CORPUS)/%
+	@log=$(BUILD)/$@-$(QEMU_ARCH).log; new=$(BUILD)/new-$(QEMU_ARCH)/$*; prefix=$*-$(QEMU_ARCH)-; \
+	mkdir -p $$new $(BUILD)/crashes; before=$$(ls $(BUILD)/crashes | grep -c "^$$prefix"); \
+	if ! $< --guest $(GUEST_DIR)/$(QEMU_ARCH)/guest --target $* --seeds $(CORPUS)/$* --queue $$new \
+	     --crashes $(BUILD)/crashes --prefix $$prefix \
+	     $(if $(FUZZ_DICT),$(addprefix --dict ,$(FUZZ_DICT)/common.dict $(wildcard $(FUZZ_DICT)/$*.dict))) \
+	     --cores $(call libafl_cores,$*) --time $(FUZZ_TIME) $(LIBAFL_ARGS) > $$log 2>&1; then \
+		tail -n 40 $$log; echo "FAIL $* on $(QEMU_ARCH): see $$log"; exit 1; \
+	fi; \
+	if [ $$(ls $(BUILD)/crashes | grep -c "^$$prefix") -gt $$before ]; then \
+		grep -m 1 -A 2 'diverges' $$log; echo "FAIL $* on $(QEMU_ARCH): see $$log and $(BUILD)/crashes"; exit 1; \
+	fi; \
+	echo "ok   $* on $(QEMU_ARCH): $$(grep '(GLOBAL)' $$log | tail -n 1 | sed 's/.*(GLOBAL) //')"
+
+# Adds to $(CORPUS_ARCH)/<arch>/<target> the inputs from a qemu-fuzz run that
+# reach guest edges the corpus doesn't. `make merge` keeps only what raises x86
+# coverage, so it would drop them.
+qemu-merge: $(TARGETS:%=qemu-merge-%)
+
+$(TARGETS:%=qemu-merge-%): qemu-merge-%: $(call qemu_fuzzer,$(QEMU_ARCH)) | $(CORPUS)/%
+	@log=$(BUILD)/$@-$(QEMU_ARCH).log; tmp=$(BUILD)/qemu-merge/$(QEMU_ARCH)/$*; \
+	rm -rf $$tmp; mkdir -p $(BUILD)/new-$(QEMU_ARCH)/$*; \
+	$< --guest $(GUEST_DIR)/$(QEMU_ARCH)/guest --target $* --seeds $(CORPUS)/$* --queue $$tmp/queue \
+	   --crashes $$tmp/crashes --cores $(call libafl_cores,$*) --merge-into $(CORPUS_ARCH)/$(QEMU_ARCH)/$* \
+	   --merge-from $(BUILD)/new-$(QEMU_ARCH)/$* > $$log 2>&1 || { cat $$log; exit 1; }; \
+	echo "ok   $* on $(QEMU_ARCH): $$(grep -o 'kept [0-9]* inputs' $$log)"
+
+# Proves the QEMU fuzzer reports a divergence: the aarch64 guest with one
+# transcript byte flipped, qemu_selftest, must differ from the reference.
+qemu-selftest: $(call qemu_fuzzer,qemu_selftest) | $(CORPUS)/field
+	@log=$(BUILD)/$@.log; dir=$(BUILD)/$@; rm -rf $$dir; \
+	$< --guest $(GUEST_DIR)/qemu_selftest/guest --target field --seeds $(CORPUS)/field --queue $$dir/new \
+	   --crashes $$dir/crashes --cores $(call libafl_cores,field) --time 10 > $$log 2>&1; \
+	if [ -z "$$(ls $$dir/crashes 2>/dev/null)" ] || ! grep -q 'reference and qemu_selftest' $$log; then \
+		tail -n 20 $$log; echo "FAIL $@: divergence from qemu_selftest not reported"; exit 1; \
+	fi; \
+	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
+
 # Source coverage of the corpus replayed through one variant's flags, without
 # its sanitizers: what the fuzzer reaches. The report goes to $(BUILD)/coverage.
 COVERAGE_COMPILE = $(CLANG) $(COMMON_CFLAGS) $(filter-out $(SANITIZE_CFLAGS),$($(COVERAGE_VARIANT)_CFLAGS)) \
@@ -361,15 +451,19 @@ $(BUILD)/cross/$(1)/%.o: src/%.c $(BUILD)/cross/$(1)/flags
 $(BUILD)/cross/$(1)/replay$$($(1)_EXE): $(BUILD)/cross/$(1)/variant.o $(BUILD)/cross/$(1)/replay.o
 	$$($(1)_CC) -static $$^ -o $$@
 
+$(BUILD)/cross/$(1)/guest: $(BUILD)/cross/$(1)/variant.o $(BUILD)/cross/$(1)/guest.o
+	$$($(1)_CC) -static $$^ -o $$@
+
 $(BUILD)/cross/$(1)/digests: $(BUILD)/cross/$(1)/replay$$($(1)_EXE) FORCE | $(TARGETS:%=$(CORPUS)/%)
 	@for t in $(TARGETS); do \
-		find $(CORPUS)/$$$$t -type f | LC_ALL=C sort | $$($(1)_RUN) $$< $$$$t || exit 1; \
+		find $(CORPUS)/$$$$t $$$$(ls -d $(CORPUS_ARCH)/*/$$$$t 2>/dev/null) -type f | LC_ALL=C sort | \
+			$$($(1)_RUN) $$< $$$$t || exit 1; \
 	done > $$@.tmp
 	@mv $$@.tmp $$@
 
--include $(BUILD)/cross/$(1)/variant.d $(BUILD)/cross/$(1)/replay.d
+-include $(BUILD)/cross/$(1)/variant.d $(BUILD)/cross/$(1)/replay.d $(BUILD)/cross/$(1)/guest.d
 endef
-$(foreach a,$(ARCHES) cross_selftest,$(eval $(call ARCH_RULE,$(a))))
+$(foreach a,$(ARCHES) cross_selftest qemu_selftest,$(eval $(call ARCH_RULE,$(a))))
 
 CROSS_REF := $(BUILD)/cross/$(CROSS_REFERENCE)/digests
 
@@ -400,10 +494,13 @@ cross-selftest: $(CROSS_REF) $(BUILD)/cross/cross_selftest/digests
 # Only the replay binaries, for the oracle of `make libafl-fuzz`.
 cross-replays: $(foreach a,$(ARCHES) cross_selftest,$(BUILD)/cross/$(a)/replay$($(a)_EXE))
 
+# The guests of `make qemu-fuzz`, for the architectures libafl_qemu emulates.
+cross-guests: $(foreach a,$(QEMU_ARCHES) qemu_selftest,$(BUILD)/cross/$(a)/guest)
+
 # `make docker-cross`, `make docker-cross-selftest` and `make docker-cross-replays`
 # run their goal in a container with the cross toolchains, qemu-user and wine.
 # The corpus is seeded on the host first, so the image needs no libFuzzer.
-DOCKER_GOALS := cross cross-selftest cross-replays
+DOCKER_GOALS := cross cross-selftest cross-replays cross-guests
 
 cross-image:
 	$(DOCKER) build -t $(CROSS_IMAGE) ci
@@ -416,10 +513,11 @@ $(DOCKER_GOALS:%=docker-%): docker-%: cross-image | $(TARGETS:%=$(CORPUS)/%)
 		-v $(CURDIR):/src -w /src $(CROSS_IMAGE) \
 		make -j$$(nproc) BUILD=$(BUILD)/docker CORPUS=$(CORPUS) $*
 
-$(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage $(BUILD)/libafl:
+$(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage $(BUILD)/libafl $(BUILD)/qemu/reference:
 	mkdir -p $@
 
 clean:
 	rm -rf $(BUILD)
 
--include $(SELFTEST_OBJS:.o=.d) $(MUTANT_OBJS:.o=.d) $(BUILD)/coverage/variant.d $(BUILD)/coverage/replay.d
+-include $(SELFTEST_OBJS:.o=.d) $(MUTANT_OBJS:.o=.d) $(BUILD)/coverage/variant.d $(BUILD)/coverage/replay.d \
+         $(BUILD)/qemu/reference/variant.d $(BUILD)/qemu/reference/guest.d

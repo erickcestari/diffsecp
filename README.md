@@ -20,7 +20,8 @@ agree on inputs nobody wrote down.
 clang with libFuzzer, gcc, GNU make, binutils (`objcopy`) and python3, plus
 `llvm-profdata` and `llvm-cov` of the same LLVM for `make coverage`. Docker for
 cross-architecture runs, unless GCC 14 cross toolchains, clang 19 and qemu-user
-are installed. cargo with Rust 1.89 or newer for `make libafl-fuzz`.
+are installed. cargo with Rust 1.89 or newer for `make libafl-fuzz`, plus ninja
+and glib for `make qemu-fuzz`.
 
 ## Usage
 
@@ -143,7 +144,8 @@ includes it.
 
 `corpus/<target>` is committed. It was grown by coverage-guided fuzzing and
 minimized with `-merge=1`. `make check` replays it through every variant and
-`make cross` on every architecture.
+`make cross` on every architecture, together with `corpus-arch/<arch>/<target>`
+from `make qemu-merge` (see QEMU).
 
 `make fuzz` writes new inputs to `build/new` and reproducers to `build/crashes`,
 and `FUZZ_ARGS` passes libFuzzer flags such as `-fork=8`. Each target mutates
@@ -252,6 +254,34 @@ divergence after 12 seconds of fuzzing `field`. An input takes 120 to 220 µs pe
 architecture under qemu, against 3.8 ms for a `field` input through every x86
 build, and the emulators share the fuzzer's core. win64 needs wine. `make
 libafl-oracle-selftest` checks that the oracle reports a flipped transcript byte.
+
+## QEMU
+
+`make qemu-fuzz QEMU_ARCH=aarch64` fuzzes on another architecture under
+libafl_qemu (`libafl/qemu`). Coverage then comes from the machine code that
+architecture's compiler emitted, where the in-process fuzzers only see clang
+`-O1` on x86. `src/guest.c` runs each input in a static build for the
+architecture inside QEMU. The same file built for the host runs it natively as
+the reference, and a transcript that differs is a divergence. `QEMU_ARCH` is
+arm, aarch64, aarch64_clang or riscv64, since libafl_qemu has no ppc64:
+
+```sh
+make docker-cross-guests    # or `make cross-guests` with the cross toolchains
+make -j qemu-fuzz QEMU_ARCH=aarch64 GUEST_DIR=build/docker/cross FUZZ_TIME=3600
+make qemu-merge QEMU_ARCH=aarch64 GUEST_DIR=build/docker/cross
+```
+
+libafl_qemu builds QEMU once per architecture, which takes minutes and needs
+network, ninja and glib. In three minutes on aarch64 it reached guest edges the
+committed corpus misses on `ecdsa`, `group`, `keys` and `ellswift`. Ten of those
+edges only came from inputs that add no x86 coverage, which `make merge` would
+drop. `make qemu-merge` keeps the inputs that add guest coverage in
+`corpus-arch/<arch>/<target>`, and `make check` and `make cross` replay them with
+the corpus, so every architecture, ppc64 included, runs them. With
+`fe_set_b32_limit` made to accept x = p in the aarch64 guest alone, the fuzzer
+reported the divergence about 600 executions in. It runs `ecdsa` at 3,600 to
+8,600 executions per second, depending on the architecture. `make qemu-selftest`
+checks that a flipped transcript byte in the guest is reported.
 
 ## CI
 

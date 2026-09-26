@@ -14,7 +14,8 @@ libafl_bolts.workspace = true
 # src/cmp.c replaces sancov_cmplog and sancov_value_profile.
 libafl_targets = { workspace = true, features = ["sancov_8bit", "libfuzzer", "observers"] }
 clap.workspace = true
-serde = { version = "1", features = ["derive"] }
+serde.workspace = true
+common.workspace = true
 libc = "0.2"
 
 [build-dependencies]
