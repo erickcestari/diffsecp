@@ -202,13 +202,13 @@ versions.
 
 <!-- coverage:begin -->
 
-libsecp `f14d2992585b`: 86.85% of lines, 60.20% of branches, 89.07% of functions.
+libsecp `f14d2992585b`: 86.85% of lines, 60.23% of branches, 89.07% of functions.
 
 | File | Lines | Branches | Functions |
 |------|------:|---------:|----------:|
 | `contrib/lax_der_parsing.c` | 100.00% | 100.00% | 100.00% |
 | `src/assumptions.h` | 0.00% | - | 0.00% |
-| `src/ecdsa_impl.h` | 97.40% | 94.23% | 100.00% |
+| `src/ecdsa_impl.h` | 97.40% | 95.19% | 100.00% |
 | `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
 | `src/ecmult_const_impl.h` | 100.00% | 74.14% | 100.00% |
 | `src/ecmult_gen_impl.h` | 94.92% | 78.12% | 85.71% |
