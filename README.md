@@ -156,8 +156,9 @@ stays the same: the arithmetic is branch-free. `FUZZ_DICT=` turns them off.
 closer. With the dictionaries it found every planted bug in all four runs, most
 within 20 seconds, at no cost to their coverage. On `ecdsa` and `group` it
 multiplied the corpus and lowered coverage within five minutes, so they fuzz
-without it. `make merge` then adds only the inputs that raise coverage and skips
-any that diverge, so the committed corpus stays compact. `make minimize`
+without it. `make merge` then adds only the inputs that raise coverage, counting
+value profile for those targets, and skips any that diverge, so the committed
+corpus stays compact. `make minimize`
 rebuilds each corpus from scratch after a target or libsecp changes what inputs
 reach. Every one of them also exists per target, as in `make fuzz-ecdsa`.
 

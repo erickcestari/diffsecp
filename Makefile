@@ -66,6 +66,8 @@ SELFTEST_OBJS := $(VARIANT_OBJS) $(BUILD)/variants/selftest.o
 FUZZERS       := $(TARGETS:%=$(BUILD)/fuzz_%)
 FUZZ_COMPILE   = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=fuzzer,address,undefined \
                  -fno-sanitize-recover=all
+# Merging and minimizing need the flag too, or they drop what value profile found.
+value_profile  = $(if $(filter $(1),$(FUZZ_VALUE_PROFILE)),-use_value_profile=1)
 VARIANTS_H          := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS),X($(v)))
 SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) selftest,X($(v)))
 
@@ -154,7 +156,7 @@ $(TARGETS:%=fuzz-%): fuzz-%: $(BUILD)/fuzz_% | $(CORPUS)/%
 	@log=$(BUILD)/$@.log; mkdir -p $(BUILD)/new/$* $(BUILD)/crashes; \
 	$(if $(FUZZ_DICT),cat $(FUZZ_DICT)/common.dict $(wildcard $(FUZZ_DICT)/$*.dict) > $(BUILD)/$*.dict;) \
 	if ! $< -max_total_time=$(FUZZ_TIME) -artifact_prefix=$(BUILD)/crashes/$*- \
-	     $(if $(FUZZ_DICT),-dict=$(BUILD)/$*.dict) $(if $(filter $*,$(FUZZ_VALUE_PROFILE)),-use_value_profile=1) \
+	     $(if $(FUZZ_DICT),-dict=$(BUILD)/$*.dict) $(call value_profile,$*) \
 	     $(FUZZ_ARGS) $(BUILD)/new/$* $(CORPUS)/$* > $$log 2>&1; then \
 		tail -n 40 $$log; echo "FAIL $*: see $$log and $(BUILD)/crashes"; exit 1; \
 	fi; \
@@ -166,7 +168,7 @@ merge: $(TARGETS:%=merge-%)
 
 $(TARGETS:%=merge-%): merge-%: $(BUILD)/fuzz_% | $(CORPUS)/%
 	@log=$(BUILD)/$@.log; before=$$(ls $(CORPUS)/$* | wc -l); mkdir -p $(BUILD)/new/$*; \
-	$< -merge=1 $(CORPUS)/$* $(BUILD)/new/$* > $$log 2>&1 || { cat $$log; exit 1; }; \
+	$< -merge=1 $(call value_profile,$*) $(CORPUS)/$* $(BUILD)/new/$* > $$log 2>&1 || { cat $$log; exit 1; }; \
 	echo "ok   $*: $$(( $$(ls $(CORPUS)/$* | wc -l) - before )) inputs added"
 
 # Rebuilds each corpus from scratch with only the inputs its coverage needs, for
@@ -176,7 +178,7 @@ minimize: $(TARGETS:%=minimize-%)
 $(TARGETS:%=minimize-%): minimize-%: $(BUILD)/fuzz_% | $(CORPUS)/%
 	@log=$(BUILD)/$@.log; tmp=$(BUILD)/minimize/$*; before=$$(ls $(CORPUS)/$* | wc -l); \
 	rm -rf $$tmp && mkdir -p $$tmp; \
-	$< -merge=1 $$tmp $(CORPUS)/$* > $$log 2>&1 || { cat $$log; exit 1; }; \
+	$< -merge=1 $(call value_profile,$*) $$tmp $(CORPUS)/$* > $$log 2>&1 || { cat $$log; exit 1; }; \
 	rm -rf $(CORPUS)/$* && mv $$tmp $(CORPUS)/$*; \
 	echo "ok   $*: $$before -> $$(ls $(CORPUS)/$* | wc -l) inputs"
 
