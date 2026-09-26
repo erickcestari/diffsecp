@@ -60,10 +60,12 @@ chosen R, so verification recomputes infinity or an x at least the group order,
 which no signer can reach. It also builds DER encodings from fuzzed integers
 with the lengths computed, some long-form or short by a few bytes. That reaches
 the parser's length and padding rules, which mutated encodings rarely do: every
-length has to stay consistent first. `keys` can take a tweak from another
-register's secret key, so a key plus its negation sums to zero. `group` builds its points as k·G
-from fuzzed scalars, so it reaches the exceptional cases of point addition
-(doubling, P + (-P), infinity) that signatures can't.
+length has to stay consistent first. `schnorrsig` can turn its signature
+(r, s) into (r, 2ed - s), which verification computes as -R: the right x with
+an odd y, which only the signer's key produces. `keys` can take a tweak from
+another register's secret key, so a key plus its negation sums to zero. `group`
+builds its points as k·G from fuzzed scalars, so it reaches the exceptional
+cases of point addition (doubling, P + (-P), infinity) that signatures can't.
 
 ## Variants
 
