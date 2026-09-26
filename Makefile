@@ -233,9 +233,10 @@ mutation-score: $(FUZZERS) | $(TARGETS:%=$(CORPUS)/%)
 
 # Proves the oracle reports a divergence: the reference architecture's replay
 # with one transcript byte flipped, cross_selftest, must differ on the corpus.
+# It runs natively, so no emulator is needed.
 oracle-selftest: ORACLE_ARCHES := cross_selftest
 oracle-selftest: ORACLE_RATE := 1
-oracle-selftest: $(BUILD)/fuzz_field | $(CORPUS)/field
+oracle-selftest: $(BUILD)/fuzz_field $(ORACLE_DIR)/cross_selftest/replay$(cross_selftest_EXE) | $(CORPUS)/field
 	@log=$(BUILD)/$@.log; new=$(BUILD)/$@.new; rm -rf $$new && mkdir -p $$new; \
 	if $(call oracle_env,field) $< -runs=$(SMOKE_RUNS) -seed=1 -artifact_prefix=$(BUILD)/$@- \
 	   $$new $(CORPUS)/field > $$log 2>&1 || ! grep -q 'reference and cross_selftest' $$log; then \

@@ -28,6 +28,9 @@ jobs:
       CLANG: clang-19
       LLVM_PROFDATA: llvm-profdata-19
       LLVM_COV: llvm-cov-19
+      # A sample of the inputs also runs on these architectures while fuzzing
+      # (src/oracle.h). win64 needs wine, so only `make cross` replays it.
+      ORACLE_ARCHES: arm aarch64 aarch64_clang riscv64 ppc64 ppc64le
     outputs:
       changed: ${{ steps.corpus.outputs.changed }}
     steps:
@@ -35,11 +38,14 @@ jobs:
         run: >-
           apt-get update && apt-get install -y --no-install-recommends
           git ca-certificates make libc6-dev gcc-14 clang-19 libclang-rt-19-dev llvm-19 gnupg python3
+          gcc-14-arm-linux-gnueabihf libc6-dev-armhf-cross gcc-14-aarch64-linux-gnu libc6-dev-arm64-cross
+          gcc-14-riscv64-linux-gnu libc6-dev-riscv64-cross gcc-14-powerpc64-linux-gnu libc6-dev-ppc64-cross
+          gcc-14-powerpc64le-linux-gnu libc6-dev-ppc64el-cross qemu-user
       - uses: actions/checkout@v5
         with:
           submodules: true
-      - name: Build
-        run: make -j"$(nproc)" all
+      - name: Build the fuzzers and the oracle's replays
+        run: make -j"$(nproc)" all $(for a in $ORACLE_ARCHES; do echo build/cross/$a/replay; done)
       - name: Fuzz every target at once
         env:
           MINUTES: ${{ inputs.minutes || '120' }}

@@ -27,6 +27,8 @@ jobs:
           submodules: true
       - name: Selftest, corpus replay and short run of every target
         run: make -j"$(nproc)" check GCC=gcc-14 CLANG=clang-19
+      - name: Selftest of the oracle make fuzz can run
+        run: make oracle-selftest GCC=gcc-14 CLANG=clang-19
 
   cross:
     runs-on: ubuntu-24.04
