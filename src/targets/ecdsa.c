@@ -5,15 +5,18 @@
  * infinity, or with an x at least the group order.
  *
  * Input: mode, msg[32], then seckey[32] (+ ndata[32]), or R's kind, x[32] and
- * sig64 to construct the key from, or raw pubkey and sig64; then mutations, and
- * the rest is parsed as a DER signature, after sig64's DER encoding in DER mode. */
+ * sig64 to construct the key from, or raw pubkey and sig64; then a built DER
+ * encoding (ecdsa_der_build) in DER_BUILD mode; then mutations, and the rest is
+ * parsed as a DER signature, after sig64's DER encoding in DER mode or the built
+ * one in DER_BUILD mode. */
 
 enum ecdsa_mode {
     ECDSA_SIGN = 1 << 0,
     ECDSA_COMPRESSED = 1 << 1,
     ECDSA_NDATA = 1 << 2,      /* sign with extra nonce data */
     ECDSA_CONSTRUCT = 1 << 3,  /* without ECDSA_SIGN, construct the key from R */
-    ECDSA_DER = 1 << 4         /* DER-encode sig64, so mutations reach the strict parser */
+    ECDSA_DER = 1 << 4,        /* DER-encode sig64, so mutations reach the strict parser */
+    ECDSA_DER_BUILD = 1 << 5   /* build a DER encoding from fuzzed integers instead */
 };
 
 enum ecdsa_r {
@@ -23,8 +26,51 @@ enum ecdsa_r {
     ECDSA_R_COUNT
 };
 
-/* sig64's DER encoding, one byte inserted per mutation, and the rest of the input. */
-#define ECDSA_DER_MAX (72 + 8 + DIFFSECP_INPUT_MAX)
+/* The longest encoding (a built one: 30 82 LL, then two of 02 81 L and 255
+ * bytes), one byte inserted per mutation, and the rest of the input. */
+#define ECDSA_DER_MAX (4 + 2 * (3 + 255) + 8 + DIFFSECP_INPUT_MAX)
+
+/* Writes DER length octets for len and returns their count: the short form,
+ * unless long_form asks for the long one, which DER forbids below 128. */
+static size_t ecdsa_der_len(unsigned char *out, size_t len, int long_form) {
+    if (len < 128 && !long_form) {
+        out[0] = (unsigned char)len;
+        return 1;
+    }
+    if (len < 256) {
+        out[0] = 0x81;
+        out[1] = (unsigned char)len;
+        return 2;
+    }
+    out[0] = 0x82;
+    out[1] = (unsigned char)(len >> 8);
+    out[2] = (unsigned char)len;
+    return 3;
+}
+
+/* A DER signature built from two fuzzed integers of up to 255 bytes, with the
+ * lengths computed. Flags pick long-form lengths (bit 0 the sequence's, bits 1
+ * and 2 the integers') and a sequence length short by bits 3-4. Mutating a
+ * signer's encoding almost never keeps every length consistent, and the strict
+ * parser checks lengths before anything else, so its length and padding rules
+ * are only reached this way. */
+static size_t ecdsa_der_build(struct reader *r, unsigned char *der) {
+    unsigned int flags = reader_u8(r), i;
+    unsigned char body[2 * (3 + 255)];
+    size_t n = 0, len, pos;
+
+    for (i = 0; i < 2; i++) {
+        len = reader_u8(r);
+        body[n++] = 0x02;
+        n += ecdsa_der_len(body + n, len, (int)(flags >> (1 + i) & 1));
+        reader_take(r, body + n, len);
+        n += len;
+    }
+    der[0] = 0x30;
+    pos = 1 + ecdsa_der_len(der + 1, n - (flags >> 3 & 3), (int)(flags & 1));
+    memcpy(der + pos, body, n);
+    return pos + n;
+}
 
 static void ecdsa_record_pubkey(struct transcript *t, const secp256k1_pubkey *pk) {
     unsigned char ser[65];
@@ -168,7 +214,9 @@ static size_t target_ecdsa(const unsigned char *in, size_t len, unsigned char *o
     }
 
     derlen = 0;
-    if ((mode & ECDSA_DER) && secp256k1_ecdsa_signature_parse_compact(variant_ctx, &sig, sig64)) {
+    if (mode & ECDSA_DER_BUILD) {
+        derlen = ecdsa_der_build(&r, der);
+    } else if ((mode & ECDSA_DER) && secp256k1_ecdsa_signature_parse_compact(variant_ctx, &sig, sig64)) {
         derlen = ECDSA_DER_MAX;
         transcript_int(&t, secp256k1_ecdsa_signature_serialize_der(variant_ctx, der, &derlen, &sig));
     }

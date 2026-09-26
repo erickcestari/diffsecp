@@ -63,6 +63,23 @@ INV_P = group("Field inversion: inputs mod p needing the most safegcd steps.",
               [("inv_hard_p%d" % i, b32(v)) for i, v in enumerate(INV_HARD_P)])
 INV_N = group("Scalar inversion: inputs mod n needing the most safegcd steps.",
               [("inv_hard_n%d" % i, b32(v)) for i, v in enumerate(INV_HARD_N)])
+
+def sqrt_mod_p(a):
+    # p = 3 mod 4, so a square's root is a^((p+1)/4).
+    r = pow(a, (P + 1) // 4, P)
+    return r if r * r % P == a % P else None
+
+
+# ellswift_xswiftec_frac_var: u^3 + 7 + t^2 = 0 makes g + s zero, a special case
+# the decoding handles apart. Fuzzed bytes never solve for it.
+GS_ZERO = []
+for u in range(1, 100):
+    t = sqrt_mod_p(-(u**3 + 7) % P)
+    if t is not None and len(GS_ZERO) < 3:
+        GS_ZERO.append((u, t))
+assert all((u**3 + 7 + t * t) % P == 0 for u, t in GS_ZERO) and len(GS_ZERO) == 3
+ELLSWIFT_GS_ZERO = group("ElligatorSwift encodings u || t with u^3 + 7 + t^2 = 0, where decoding special-cases g + s = 0.",
+                         [("ellswift_gs_zero%d" % i, b32(u) + b32(t)) for i, (u, t) in enumerate(GS_ZERO)])
 DER = group("DER framing, well formed and not: negative, padded, indefinite length.", [
     ("der_seq_32_32", b"\x30\x44\x02\x20"), ("der_seq_33_33", b"\x30\x46\x02\x21\x00"),
     ("der_int_33", b"\x02\x21\x00"), ("der_int_32", b"\x02\x20"), ("der_int_zero", b"\x02\x01\x00"),
@@ -90,7 +107,7 @@ DICTS = {
     "recovery": [INV_N],
     "group": [ECMULT_CONST, SPLIT],
     "keys": [ECMULT_CONST, SPLIT],
-    "ellswift": [ECMULT_CONST],
+    "ellswift": [ECMULT_CONST, ELLSWIFT_GS_ZERO],
 }
 
 HEADER = {

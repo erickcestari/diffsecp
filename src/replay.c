@@ -1,5 +1,6 @@
 /* Runs inputs through one build and prints a digest of each transcript, so builds
- * for different architectures can be compared out of process.
+ * for different architectures can be compared out of process, after the fact or
+ * per input by the oracle in src/oracle.h.
  *
  *   replay TARGET          reads input paths from stdin, one per line, and
  *                          prints "TARGET DIGEST PATH" for each
@@ -18,6 +19,7 @@
 #endif
 
 #include "diffsecp.h"
+#include "digest.h"
 
 #ifndef DIFFSECP_VARIANT
 #error "DIFFSECP_VARIANT must name the variant linked into this binary"
@@ -51,18 +53,6 @@ static int read_input(const char *path, size_t *len) {
     return ok;
 }
 
-/* FNV-1a. Inputs aren't adversarial to the hash, so 64 bits make a collision that
- * hides a divergence negligible. */
-static uint64_t digest(const unsigned char *p, size_t n) {
-    uint64_t h = 0xcbf29ce484222325u;
-    size_t i;
-
-    for (i = 0; i < n; i++) {
-        h = (h ^ p[i]) * 0x100000001b3u;
-    }
-    return h;
-}
-
 static int replay_paths(const char *name, diffsecp_target_fn fn) {
     char path[4096];
     size_t n, len;
@@ -85,11 +75,14 @@ static int replay_paths(const char *name, diffsecp_target_fn fn) {
         /* The fuzzer rejects these too, so every build skips the same inputs. */
         if (len > DIFFSECP_INPUT_MAX) {
             printf("%s - %s\n", name, path);
+            fflush(stdout);
             continue;
         }
-        h = digest(transcript, fn(input, len, transcript, sizeof(transcript)));
+        h = diffsecp_digest(transcript, fn(input, len, transcript, sizeof(transcript)));
         /* Two halves because older Windows runtimes lack a portable 64-bit format. */
         printf("%s %08lx%08lx %s\n", name, (unsigned long)(h >> 32), (unsigned long)(h & 0xffffffffu), path);
+        /* Line by line, so a fuzzer can keep one replay running as an oracle. */
+        fflush(stdout);
     }
     return ferror(stdin) ? 1 : 0;
 }

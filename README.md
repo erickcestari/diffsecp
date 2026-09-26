@@ -17,7 +17,7 @@ agree on inputs nobody wrote down.
 
 ## Requirements
 
-clang with libFuzzer, gcc, GNU make and binutils (`objcopy`), plus
+clang with libFuzzer, gcc, GNU make, binutils (`objcopy`) and python3, plus
 `llvm-profdata` and `llvm-cov` of the same LLVM for `make coverage`. Docker for
 cross-architecture runs, unless GCC 14 cross toolchains, clang 19 and qemu-user
 are installed.
@@ -31,6 +31,7 @@ make check                                         # selftest, corpus replay, sh
 make -j fuzz FUZZ_TIME=3600                        # fuzz every target from the corpus for an hour
 make merge                                         # add the new inputs that raise coverage to the corpus
 make coverage                                      # what the corpus reaches, in build/coverage
+make mutation-score                                # which planted bugs the corpus exposes
 build/fuzz_ecdsa build/crashes/ecdsa-crash-<hash>  # replay a divergence
 ```
 
@@ -56,9 +57,13 @@ The signature targets sign first and then mutate the signature, message or key,
 reaching verify paths random bytes almost never hit. `ecdsa` also mutates the
 signature's DER encoding, reaching the strict parser, and builds the key from a
 chosen R, so verification recomputes infinity or an x at least the group order,
-which no signer can reach. `group` builds its points as k·G from fuzzed
-scalars, so it reaches the exceptional cases of point addition (doubling,
-P + (-P), infinity) that signatures can't.
+which no signer can reach. It also builds DER encodings from fuzzed integers
+with the lengths computed, some long-form or short by a few bytes. That reaches
+the parser's length and padding rules, which mutated encodings rarely do: every
+length has to stay consistent first. `keys` can take a tweak from another
+register's secret key, so a key plus its negation sums to zero. `group` builds its points as k·G
+from fuzzed scalars, so it reaches the exceptional cases of point addition
+(doubling, P + (-P), infinity) that signatures can't.
 
 ## Variants
 
@@ -92,7 +97,8 @@ Builds for other architectures can't share a process, so `make cross` replays
 the corpus out of process instead. `src/replay.c` runs one build over every
 corpus input and prints a digest of each transcript. It is built statically for
 each entry in `arches.mk` and run under qemu-user or wine, and the digests are
-compared against x86_64.
+compared against x86_64. `make fuzz` can also compare inputs with the other
+architectures while fuzzing (see Oracle).
 
 The architectures follow the Guix release targets that run on Linux or Wine:
 32-bit ARM, aarch64, riscv64, big-endian ppc64 and win64, built with GCC 14 as
@@ -156,8 +162,9 @@ stays the same: the arithmetic is branch-free. `FUZZ_DICT=` turns them off.
 closer. With the dictionaries it found every planted bug in all four runs, most
 within 20 seconds, at no cost to their coverage. On `ecdsa` and `group` it
 multiplied the corpus and lowered coverage within five minutes, so they fuzz
-without it. `make merge` then adds only the inputs that raise coverage and skips
-any that diverge, so the committed corpus stays compact. `make minimize`
+without it. `make merge` then adds only the inputs that raise coverage, counting
+value profile for those targets, and skips any that diverge, so the committed
+corpus stays compact. `make minimize`
 rebuilds each corpus from scratch after a target or libsecp changes what inputs
 reach. Every one of them also exists per target, as in `make fuzz-ecdsa`.
 
@@ -166,20 +173,68 @@ writes an llvm-cov report to `build/coverage`: a per-file summary in `report.txt
 and annotated sources in `html/`. `COVERAGE_VARIANT=guide_int64` shows the int64
 arithmetic instead.
 
+## Mutants
+
+Coverage can't tell whether the fuzzer fed the values where arithmetic goes
+wrong, such as p, n and (n-1)/2. `mutants/mutants.txt` lists bugs that show only
+at such values. One example is `>=` turned into `>` in the check that rejects
+field elements at least p. Others cover key tweaks that sum to zero or
+infinity, ElligatorSwift's special cases, the exceptional cases of point
+addition, strict DER and scalar reduction. `mutants/gen.py` puts all of them
+into one copy of libsecp, each behind a run-time switch. That copy is built
+twice, as `mutant` on the int128 code and `mutant_int64` on the int64 code, so
+both field and scalar implementations have mutants.
+
+After the comparison, `src/fuzz.c` runs each of those builds once with no
+mutant on, which flags the mutants whose values the input reaches. It then runs
+once per flagged mutant not yet killed. A mutant is killed when its transcript
+differs or an API call rejects its arguments. Flagging or killing a new mutant
+counts as coverage, so `make fuzz` keeps the inputs that reach those values and
+`make merge` commits them, where every architecture replays them. It costs
+about 12% of executions on `ecdsa`.
+
+`make mutation-score` replays the corpus and lists each mutant not killed. A
+masked mutant was triggered, so some input made its expression evaluate
+differently, but no transcript changed: the rest of the computation cancelled
+the difference, or nothing recorded it. A missed one was never triggered.
+`DIFFSECP_MUTANTS=off` fuzzes without the mutants, so an evaluation can score a
+run by what didn't steer it.
+
+## Oracle
+
+`ORACLE_ARCHES` compares inputs with other architectures while fuzzing. Each
+listed architecture's static replay build keeps running under its emulator, and
+a fraction `ORACLE_RATE` (default 0.01) of the inputs must give the digest of
+the transcript every x86 build agreed on (`src/oracle.h`):
+
+```sh
+make docker-cross-replays   # or `make cross-replays` with the cross toolchains
+make -j fuzz ORACLE_DIR=build/docker/cross ORACLE_ARCHES='arm aarch64 riscv64 ppc64 ppc64le'
+```
+
+`make cross` replays only the committed corpus, whose inputs were kept for x86
+coverage, so it never sees a divergence that only an input the fuzzer drops
+would show. With `fe_set_b32_limit` made to accept x = p in the ppc64 build
+alone, replaying the corpus showed nothing, and the oracle reported the
+divergence after two minutes of fuzzing `field`. An input takes 120 to 220 µs
+per architecture under qemu, against 3.8 ms for a `field` input through every
+x86 build. win64 needs wine. `make oracle-selftest` checks that the oracle
+reports a flipped transcript byte.
+
 ## CI
 
-`.github/workflows/ci.yml` runs `make check` and `make docker-cross` on pushes
-to master and on pull requests, so every change replays the corpus. `make check`
-runs in Debian trixie with GCC 14 and clang 19.
+`.github/workflows/ci.yml` runs `make check`, `make oracle-selftest` and `make
+docker-cross` on pushes to master and on pull requests, so every change replays
+the corpus. `make check` runs in Debian trixie with GCC 14 and clang 19.
 
 `.github/workflows/bump-secp256k1.yml` moves `external/secp256k1` to upstream
 master daily, runs CI on the bump and fast-forwards master to it only if CI
 passes. A failed run leaves the bump on the `bump-secp256k1` branch: upstream
 broke a target or changed behavior against the baseline.
 
-`.github/workflows/fuzz.yml` fuzzes every target for two hours daily, adds the
-inputs that raise coverage once CI passes on them, and uploads a coverage
-report. A divergence fails the run without printing it, skips that day's corpus
+`.github/workflows/fuzz.yml` fuzzes every target for two hours daily, with the
+oracle on every Linux architecture, adds the inputs that raise coverage once CI
+passes on them, and uploads a coverage report. A divergence fails the run without printing it, skips that day's corpus
 update, and uploads its reproducer and logs encrypted to the maintainer's PGP
 key (`ci/maintainer.asc`), since artifacts of a public repository are public:
 

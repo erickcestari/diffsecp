@@ -90,3 +90,18 @@ gcc_O2_int128_struct_CFLAGS := -O2 -DUSE_FORCE_WIDEMUL_INT128_STRUCT
 # ecmult_gen.
 clang_O2_small_tables_CC     := $(CLANG)
 clang_O2_small_tables_CFLAGS := -O2 -DECMULT_WINDOW_SIZE=2 -DCOMB_BLOCKS=2 -DCOMB_TEETH=5
+
+# Not in VARIANTS: the mutant schemata, libsecp with every mutation in
+# mutants/mutants.txt behind a run-time switch. src/fuzz.c runs each build after
+# the comparison to see which mutants each input exposes: one on the int128
+# code and one on the int64 code (10x26 field, 8x32 scalar), as with guide.
+# The warning flags the side effect that records a triggered mutant.
+MUTANT_BUILDS := mutant mutant_int64
+
+mutant_CC     := $(CLANG)
+mutant_CFLAGS := -O1 -DDIFFSECP_MUTANT_SCHEMATA -Wno-bitwise-instead-of-logical
+mutant_SECP   := $(BUILD)/mutants/secp
+
+mutant_int64_CC     := $(CLANG)
+mutant_int64_CFLAGS := $(mutant_CFLAGS) -DUSE_FORCE_WIDEMUL_INT64
+mutant_int64_SECP   := $(BUILD)/mutants/secp
