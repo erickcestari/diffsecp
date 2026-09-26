@@ -34,7 +34,7 @@ jobs:
       - name: Install toolchain
         run: >-
           apt-get update && apt-get install -y --no-install-recommends
-          git ca-certificates make libc6-dev gcc-14 clang-19 libclang-rt-19-dev llvm-19 gnupg
+          git ca-certificates make libc6-dev gcc-14 clang-19 libclang-rt-19-dev llvm-19 gnupg python3
       - uses: actions/checkout@v5
         with:
           submodules: true

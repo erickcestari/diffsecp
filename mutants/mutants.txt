@@ -1,0 +1,61 @@
+# Mutations mutants/gen.py builds into the mutant schemata, run by src/fuzz.c.
+# Each is a bug that shows only for a handful of values, so killing it proves
+# the corpus reaches those values and a transcript records the result. Only the
+# 5x52 field and 4x64 scalar are mutated: the schemata is built for x86_64.
+#
+# A record is "FILE FUNCTION" at the start of a line, then the original and the
+# mutated expression on indented lines. The original must appear exactly once
+# in FUNCTION's body. Mutate compares and constants, never a loop bound, so no
+# mutant can hang or fault.
+
+# set_b32_limit rejects x >= p: the planted bug, which accepts x = p.
+src/field_5x52_impl.h secp256k1_fe_impl_set_b32_limit
+    (r->n[0] >= 0xFFFFEFFFFFC2FULL)
+    (r->n[0] > 0xFFFFEFFFFFC2FULL)
+
+# A limb left out of the same check: x in [p, 2^256) with limb 1 not all ones.
+src/field_5x52_impl.h secp256k1_fe_impl_set_b32_limit
+    ((r->n[3] & r->n[2] & r->n[1]) == 0xFFFFFFFFFFFFFULL)
+    ((r->n[3] & r->n[2]) == 0xFFFFFFFFFFFFFULL)
+
+# The final reduction of normalize misses a raw value of exactly p.
+src/field_5x52_impl.h secp256k1_fe_impl_normalize
+    (t0 >= 0xFFFFEFFFFFC2FULL)
+    (t0 > 0xFFFFEFFFFFC2FULL)
+
+src/field_5x52_impl.h secp256k1_fe_impl_normalize_var
+    (t0 >= 0xFFFFEFFFFFC2FULL)
+    (t0 > 0xFFFFEFFFFFC2FULL)
+
+# A raw value of p is zero; these forget it.
+src/field_5x52_impl.h secp256k1_fe_impl_normalizes_to_zero
+    (z0 == 0) | (z1 == 0xFFFFFFFFFFFFFULL)
+    (z0 == 0)
+
+src/field_5x52_impl.h secp256k1_fe_impl_normalizes_to_zero_var
+    (z0 == 0) | (z1 == 0xFFFFFFFFFFFFFULL)
+    (z0 == 0)
+
+# check_overflow is s >= n, compared limb by limb from the top: s = n, and the
+# ranges just below n where a lower limb decides.
+src/scalar_4x64_impl.h secp256k1_scalar_check_overflow
+    (a->d[0] >= SECP256K1_N_0)
+    (a->d[0] > SECP256K1_N_0)
+
+src/scalar_4x64_impl.h secp256k1_scalar_check_overflow
+    (a->d[1] > SECP256K1_N_1)
+    (a->d[1] >= SECP256K1_N_1)
+
+src/scalar_4x64_impl.h secp256k1_scalar_check_overflow
+    (a->d[2] > SECP256K1_N_2)
+    (a->d[2] >= SECP256K1_N_2)
+
+# is_high is s > (n-1)/2, the low-S boundary: s = (n-1)/2, and values with its
+# top limb.
+src/scalar_4x64_impl.h secp256k1_scalar_is_high
+    (a->d[0] > SECP256K1_N_H_0)
+    (a->d[0] >= SECP256K1_N_H_0)
+
+src/scalar_4x64_impl.h secp256k1_scalar_is_high
+    (a->d[3] > SECP256K1_N_H_3)
+    (a->d[3] >= SECP256K1_N_H_3)

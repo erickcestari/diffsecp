@@ -11,6 +11,7 @@ GCC         ?= gcc
 CLANG       ?= clang
 FUZZ_CC     ?= $(CLANG)
 OBJCOPY     ?= objcopy
+PYTHON      ?= python3
 SMOKE_RUNS  ?= 1000
 # Seconds per target for `make fuzz`, and extra libFuzzer flags such as -fork=N.
 FUZZ_TIME   ?= 600
@@ -63,6 +64,8 @@ cross_selftest_EXE    := $($(CROSS_REFERENCE)_EXE)
 
 VARIANT_OBJS  := $(VARIANTS:%=$(BUILD)/variants/%.o)
 SELFTEST_OBJS := $(VARIANT_OBJS) $(BUILD)/variants/selftest.o
+MUTANT_OBJ    := $(BUILD)/variants/mutant.o
+MUTANTS_H     := $(BUILD)/mutants/mutants.h
 FUZZERS       := $(TARGETS:%=$(BUILD)/fuzz_%)
 FUZZ_COMPILE   = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=fuzzer,address,undefined \
                  -fno-sanitize-recover=all
@@ -73,7 +76,7 @@ SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) sel
 
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
         fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
-        coverage readme-coverage cross cross-selftest cross-image docker-cross docker-cross-selftest clean FORCE
+        mutation-score coverage readme-coverage cross cross-selftest cross-image docker-cross docker-cross-selftest clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -96,7 +99,14 @@ $(BUILD)/variants/$(1).o: src/variant.c $(BUILD)/variants/$(1).flags
 	$$($(1)_COMPILE) -MMD -MP -MT $$@ -MF $$(@:.o=.d) -c $$< -o $$(@:.o=.raw.o)
 	$$(OBJCOPY) --wildcard -L 'secp256k1_*' -L 'ecdsa_*' -L '__odr_asan_gen_*' $$(@:.o=.raw.o) $$@
 endef
-$(foreach v,$(VARIANTS) selftest,$(eval $(call VARIANT_RULE,$(v))))
+$(foreach v,$(VARIANTS) selftest mutant,$(eval $(call VARIANT_RULE,$(v))))
+
+# The mutant schemata's libsecp tree, and mutants.h naming its mutants for
+# src/fuzz.c. gen.py rewrites only files whose content changes.
+$(MUTANTS_H): FORCE | $(BUILD)
+	@$(PYTHON) mutants/gen.py $(SECP) $(BUILD)/mutants
+
+$(MUTANT_OBJ): $(MUTANTS_H)
 
 $(BUILD)/variants.h: FORCE | $(BUILD)
 	@echo '$(VARIANTS_H)' | cmp -s - $@ || echo '$(VARIANTS_H)' > $@
@@ -107,11 +117,13 @@ $(BUILD)/selftest/variants.h: FORCE | $(BUILD)/selftest
 $(BUILD)/fuzz.flags: FORCE | $(BUILD)
 	@echo '$(FUZZ_COMPILE)' | cmp -s - $@ || echo '$(FUZZ_COMPILE)' > $@
 
-$(BUILD)/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/variants.h $(BUILD)/fuzz.flags $(VARIANT_OBJS)
-	$(FUZZ_COMPILE) -I$(BUILD) -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) -o $@
+$(BUILD)/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/variants.h $(MUTANTS_H) $(BUILD)/fuzz.flags \
+                 $(VARIANT_OBJS) $(MUTANT_OBJ)
+	$(FUZZ_COMPILE) -I$(BUILD) -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) $(MUTANT_OBJ) -o $@
 
-$(BUILD)/selftest/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h $(BUILD)/fuzz.flags $(SELFTEST_OBJS)
-	$(FUZZ_COMPILE) -I$(BUILD)/selftest -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) -o $@
+$(BUILD)/selftest/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h $(MUTANTS_H) $(BUILD)/fuzz.flags \
+                          $(SELFTEST_OBJS) $(MUTANT_OBJ)
+	$(FUZZ_COMPILE) -I$(BUILD)/selftest -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) $(MUTANT_OBJ) -o $@
 
 # Replays the corpus through every variant, then fuzzes briefly from it: catches
 # build breakage, harness contract violations and divergences on known inputs.
@@ -182,6 +194,26 @@ $(TARGETS:%=minimize-%): minimize-%: $(BUILD)/fuzz_% | $(CORPUS)/%
 	rm -rf $(CORPUS)/$* && mv $$tmp $(CORPUS)/$*; \
 	echo "ok   $*: $$before -> $$(ls $(CORPUS)/$* | wc -l) inputs"
 
+# Which mutants in mutants/mutants.txt the corpus exposes, over every target: a
+# mutant is killed once any target's transcript shows it. Lists the rest as
+# masked (triggered, but no transcript showed it) or missed (never triggered),
+# and keeps the summary line for the README.
+mutation-score: $(FUZZERS) | $(TARGETS:%=$(CORPUS)/%)
+	@for t in $(TARGETS); do \
+		DIFFSECP_MUTANTS=report $(BUILD)/fuzz_$$t -runs=0 $(CORPUS)/$$t 2> $(BUILD)/mutation-score-$$t.log || \
+			{ cat $(BUILD)/mutation-score-$$t.log; exit 1; }; \
+	done > $(BUILD)/mutation-score.txt
+	@awk -v summary=$(BUILD)/mutation-score.summary \
+	     '{ rank = $$3 == "killed" ? 2 : $$3 == "masked" ? 1 : 0; \
+	        if (!($$2 in best) || rank > best[$$2]) { best[$$2] = rank; status[$$2] = $$3 } \
+	        name[$$2] = substr($$0, index($$0, $$4)) } \
+	      END { for (k = 0; k in best; k++) { n++; count[status[k]]++; \
+	                if (status[k] != "killed") print status[k] ": " name[k] } \
+	            printf "Mutation score: %d of %d mutants killed, %d masked, %d missed.\n", \
+	                   count["killed"], n, count["masked"], count["missed"] > summary }' \
+		$(BUILD)/mutation-score.txt
+	@cat $(BUILD)/mutation-score.summary
+
 # Source coverage of the corpus replayed through one variant's flags, without
 # its sanitizers: what the fuzzer reaches. The report goes to $(BUILD)/coverage.
 COVERAGE_COMPILE = $(CLANG) $(COMMON_CFLAGS) $(filter-out $(SANITIZE_CFLAGS),$($(COVERAGE_VARIANT)_CFLAGS)) \
@@ -211,8 +243,9 @@ coverage: $(BUILD)/coverage/replay | $(TARGETS:%=$(CORPUS)/%)
 	@echo "per file: $(BUILD)/coverage/report.txt, lines: $(BUILD)/coverage/html/index.html"
 
 # Rewrites the coverage table at the bottom of README.md from a fresh report.
-readme-coverage: coverage
-	@ci/readme-coverage.sh $(BUILD)/coverage/report.txt $($(COVERAGE_VARIANT)_SECP) README.md
+readme-coverage: coverage mutation-score
+	@ci/readme-coverage.sh $(BUILD)/coverage/report.txt $($(COVERAGE_VARIANT)_SECP) README.md \
+		$(BUILD)/mutation-score.summary
 
 # One static replay binary per architecture, and the digest of every corpus
 # input on it. Digests are always regenerated since the corpus changes freely.
@@ -290,4 +323,4 @@ $(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage:
 clean:
 	rm -rf $(BUILD)
 
--include $(SELFTEST_OBJS:.o=.d) $(BUILD)/coverage/variant.d $(BUILD)/coverage/replay.d
+-include $(SELFTEST_OBJS:.o=.d) $(MUTANT_OBJ:.o=.d) $(BUILD)/coverage/variant.d $(BUILD)/coverage/replay.d

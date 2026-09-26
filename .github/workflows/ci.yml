@@ -20,7 +20,7 @@ jobs:
       - name: Install toolchain
         run: >-
           apt-get update && apt-get install -y --no-install-recommends
-          git ca-certificates make libc6-dev gcc-14 clang-19 libclang-rt-19-dev
+          git ca-certificates make libc6-dev gcc-14 clang-19 libclang-rt-19-dev python3
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}

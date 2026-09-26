@@ -23,7 +23,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install toolchain
-        run: pacman -Syu --noconfirm --needed base-devel clang compiler-rt git gnupg
+        run: pacman -Syu --noconfirm --needed base-devel clang compiler-rt git gnupg python
       - uses: actions/checkout@v5
         with:
           submodules: true

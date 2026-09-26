@@ -27,6 +27,18 @@
 
 static secp256k1_context *variant_ctx;
 
+#ifdef DIFFSECP_MUTANT_SCHEMATA
+/* A mutant can break an invariant the API checks. Recording that instead of
+ * aborting lets src/fuzz.c count the mutant as killed. */
+extern int diffsecp_mutant_illegal;
+
+static void variant_illegal(const char *message, void *data) {
+    (void)message;
+    (void)data;
+    diffsecp_mutant_illegal = 1;
+}
+#endif
+
 static void variant_init(void) {
     /* Seeded by the variant's name: builds blind differently, so a result that
      * depends on blinding diverges, and each build replays the same. */
@@ -37,6 +49,9 @@ static void variant_init(void) {
     variant_ctx = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
 #ifdef DIFFSECP_SHA256
     secp256k1_context_set_sha256_compression(variant_ctx, sha256_compress);
+#endif
+#ifdef DIFFSECP_MUTANT_SCHEMATA
+    secp256k1_context_set_illegal_callback(variant_ctx, variant_illegal, NULL);
 #endif
     if (!secp256k1_tagged_sha256(variant_ctx, seed, tag, sizeof(tag) - 1, name, sizeof(name) - 1) ||
         !secp256k1_context_randomize(variant_ctx, seed)) {

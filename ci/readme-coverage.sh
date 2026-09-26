@@ -1,20 +1,20 @@
 #!/bin/sh
 # Rewrites the block between the coverage markers in a README from an llvm-cov
-# report: one row per libsecp file with code, and totals over those files. The
-# block names the libsecp commit rather than a date, so it only changes when
-# coverage does.
+# report: one row per libsecp file with code, and totals over those files,
+# followed by the line in SCORE (`make mutation-score`). The block names the
+# libsecp commit rather than a date, so it only changes when coverage does.
 #
-# usage: readme-coverage.sh REPORT SECP README
+# usage: readme-coverage.sh REPORT SECP README SCORE
 set -eu
 
-report=$1 secp=$2 readme=$3
+report=$1 secp=$2 readme=$3 score=$4
 commit=$(git -C "$secp" rev-parse --short=12 HEAD)
 table=$(mktemp)
 trap 'rm -f "$table" "$readme.tmp"' EXIT
 
 # Report columns: file, regions (total, missed, %), functions (total, missed, %),
 # lines (total, missed, %), branches (total, missed, %).
-awk -v prefix="$secp/" -v commit="$commit" '
+awk -v prefix="$secp/" -v commit="$commit" -v score="$(cat "$score")" '
     function pct(total, missed) { return total ? sprintf("%.2f%%", 100 * (total - missed) / total) : "-" }
     index($1, prefix) == 1 && NF == 13 && $8 > 0 {
         rows = rows sprintf("| `%s` | %s | %s | %s |\n", substr($1, length(prefix) + 1), $10, $13, $7)
@@ -26,6 +26,7 @@ awk -v prefix="$secp/" -v commit="$commit" '
         print ""
         printf "libsecp `%s`: %s of lines, %s of branches, %s of functions.\n\n", commit,
                pct(lines, lines_missed), pct(branches, branches_missed), pct(functions, functions_missed)
+        printf "%s\n\n", score
         print "| File | Lines | Branches | Functions |"
         print "|------|------:|---------:|----------:|"
         printf "%s\n", rows

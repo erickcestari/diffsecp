@@ -17,7 +17,7 @@ agree on inputs nobody wrote down.
 
 ## Requirements
 
-clang with libFuzzer, gcc, GNU make and binutils (`objcopy`), plus
+clang with libFuzzer, gcc, GNU make, binutils (`objcopy`) and python3, plus
 `llvm-profdata` and `llvm-cov` of the same LLVM for `make coverage`. Docker for
 cross-architecture runs, unless GCC 14 cross toolchains, clang 19 and qemu-user
 are installed.
@@ -31,6 +31,7 @@ make check                                         # selftest, corpus replay, sh
 make -j fuzz FUZZ_TIME=3600                        # fuzz every target from the corpus for an hour
 make merge                                         # add the new inputs that raise coverage to the corpus
 make coverage                                      # what the corpus reaches, in build/coverage
+make mutation-score                                # which planted bugs the corpus exposes
 build/fuzz_ecdsa build/crashes/ecdsa-crash-<hash>  # replay a divergence
 ```
 
@@ -166,6 +167,28 @@ reach. Every one of them also exists per target, as in `make fuzz-ecdsa`.
 writes an llvm-cov report to `build/coverage`: a per-file summary in `report.txt`
 and annotated sources in `html/`. `COVERAGE_VARIANT=guide_int64` shows the int64
 arithmetic instead.
+
+## Mutants
+
+Coverage can't tell whether the fuzzer fed the values where arithmetic goes
+wrong, such as p, n and (n-1)/2. `mutants/mutants.txt` lists bugs that show only
+at such values, like `>=` turned into `>` in the check that rejects field
+elements at least p. `mutants/gen.py` builds all of them into one extra build,
+`mutant`, each behind a run-time switch. Only the 5x52 field and 4x64 scalar
+are mutated, since those are what x86_64 builds run.
+
+After the comparison, `src/fuzz.c` runs `mutant` once with no mutant on, which
+flags the mutants whose values the input reaches. It then runs once per flagged
+mutant not yet killed. A mutant is killed when its transcript differs or an API
+call rejects its arguments. Flagging or killing a new mutant counts as coverage,
+so `make fuzz` keeps the inputs that reach those values and `make merge` commits
+them, where every architecture replays them. It costs about 8% of executions on
+`field`.
+
+`make mutation-score` replays the corpus and lists each mutant not killed. A
+masked mutant was triggered but no transcript showed it, so the harness would
+miss that bug. A missed one was never triggered. `DIFFSECP_MUTANTS=off` fuzzes
+without the mutants, so an evaluation can score a run by what didn't steer it.
 
 ## CI
 
