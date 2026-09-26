@@ -4,9 +4,11 @@
 //! LibAFL saves the input as a reproducer.
 
 use std::{
+    cell::Cell,
     net::TcpListener,
     path::PathBuf,
-    time::{Duration, SystemTime},
+    rc::Rc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use clap::Parser;
@@ -40,10 +42,13 @@ use libafl_targets::{
 };
 
 mod operands;
+mod oracle;
 use operands::{OperandsStage, U256Mutator};
+use oracle::{Divergence, Oracle, OracleStage};
 
 unsafe extern "C" {
     static diffsecp_input_max: usize;
+    fn diffsecp_reference_digest() -> u64;
     // Filled on every run by src/cmp.c.
     static mut diffsecp_value_profile: [u8; 0];
     static diffsecp_value_profile_size: usize;
@@ -86,6 +91,51 @@ struct Opt {
     /// Mutate 256-bit operands with carries, boundary values and limb edges.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     u256: bool,
+    /// Also run inputs on another architecture's replay build, given as
+    /// NAME=COMMAND, such as "ppc64=qemu-ppc64 build/cross/ppc64/replay field".
+    #[arg(long)]
+    oracle: Vec<String>,
+    /// Where the oracle's input file goes; relative, so wine resolves it.
+    #[arg(long, default_value = "oracle")]
+    oracle_dir: PathBuf,
+    /// Fraction of executions also sent to the oracle, on top of every input kept.
+    #[arg(long, default_value_t = 0.01)]
+    oracle_rate: f64,
+}
+
+/// Picks a fraction of executions for the oracle, with xorshift64.
+struct Sampler {
+    state: u64,
+    threshold: u64,
+}
+
+impl Sampler {
+    fn new(rate: f64) -> Self {
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos() as u64);
+        Self {
+            state: seed ^ u64::from(std::process::id()) | 1,
+            threshold: (rate.clamp(0.0, 1.0) * u64::MAX as f64) as u64,
+        }
+    }
+
+    fn sample(&mut self) -> bool {
+        self.state ^= self.state << 13;
+        self.state ^= self.state >> 7;
+        self.state ^= self.state << 17;
+        self.state <= self.threshold && self.threshold > 0
+    }
+}
+
+/// Aborts, so LibAFL saves the input as a reproducer, as for a divergence
+/// between x86 builds.
+fn report(divergence: &Divergence) -> ! {
+    eprintln!(
+        "diffsecp: oracle input diverges between the reference and {}: expected digest {}, got \"{}\"",
+        divergence.arch, divergence.expected, divergence.answer
+    );
+    std::process::abort();
 }
 
 /// A port no other broker listens on. Launcher joins whichever broker already
@@ -240,11 +290,45 @@ fn client(
     if unsafe { libfuzzer_initialize(&args) } == -1 {
         return Err(Error::illegal_state("LLVMFuzzerInitialize failed"));
     }
+    // Checked on the empty input first, so a wrong command fails here and not as
+    // a divergence.
+    let mut oracle = match opt.oracle.as_slice() {
+        [] => None,
+        specs => {
+            let mut oracle = Oracle::spawn(specs, &opt.oracle_dir)?;
+            unsafe { libfuzzer_test_one_input(&[]) };
+            if let Some(d) = oracle.check(&[], unsafe { diffsecp_reference_digest() })? {
+                return Err(Error::illegal_state(format!(
+                    "oracle {} fails on the empty input: expected {}, got \"{}\"",
+                    d.arch, d.expected, d.answer
+                )));
+            }
+            Some(oracle)
+        }
+    };
+    let force = oracle.as_ref().map(|_| Rc::new(Cell::new(false)));
+    let forced = force.clone();
+    let mut sampler = Sampler::new(opt.oracle_rate);
     let mut harness = |input: &BytesInput| {
         // Past the deadline, the rest of the current stage runs nothing: one stage
         // of a slow target takes minutes.
-        if deadline.is_none_or(|d| SystemTime::now() < d) {
-            unsafe { libfuzzer_test_one_input(&input.target_bytes().to_slice()) };
+        if deadline.is_some_and(|d| SystemTime::now() >= d) {
+            return ExitKind::Ok;
+        }
+        let bytes = input.target_bytes();
+        unsafe { libfuzzer_test_one_input(&bytes.to_slice()) };
+        if let (Some(oracle), Some(forced)) = (oracle.as_mut(), &forced)
+            && (forced.get() || sampler.sample())
+        {
+            match oracle.check(&bytes.to_slice(), unsafe { diffsecp_reference_digest() }) {
+                Ok(Some(divergence)) => report(&divergence),
+                Ok(None) => {}
+                Err(e) => {
+                    // Not the input's fault: exit without a reproducer.
+                    eprintln!("libafl: oracle: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
         ExitKind::Ok
     };
@@ -275,6 +359,7 @@ fn client(
     ))));
     let mut stages = tuple_list!(
         calibration,
+        OracleStage::new(force),
         ShadowTracingStage::new(),
         i2s,
         OperandsStage::new(opt.u256),

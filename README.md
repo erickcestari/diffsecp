@@ -94,7 +94,8 @@ Builds for other architectures can't share a process, so `make cross` replays
 the corpus out of process instead. `src/replay.c` runs one build over every
 corpus input and prints a digest of each transcript. It is built statically for
 each entry in `arches.mk` and run under qemu-user or wine, and the digests are
-compared against x86_64.
+compared against x86_64. `make libafl-fuzz` can also compare each input while
+fuzzing (see LibAFL).
 
 The architectures follow the Guix release targets that run on Linux or Wine:
 32-bit ARM, aarch64, riscv64, big-endian ppc64 and win64, built with GCC 14 as
@@ -231,6 +232,26 @@ LibAFL kept them in three and none of the four, and libFuzzer in none and two. A
 stage that first set every operand to every token gained nothing over the
 mutator, so there is no such stage. `LIBAFL_ARGS='--u256 false'` turns the
 mutator off.
+
+`ORACLE_ARCHES` also compares inputs with other architectures while fuzzing.
+Each listed architecture's static replay build keeps running under its
+emulator. Every input LibAFL keeps, plus a fraction `ORACLE_RATE` (default
+0.01) of all the others, must give the digest of the transcript every x86 build
+agreed on:
+
+```sh
+make docker-cross-replays   # or `make cross-replays` with the cross toolchains
+make -j libafl-fuzz ORACLE_DIR=build/docker/cross ORACLE_ARCHES='arm aarch64 riscv64 ppc64 ppc64le'
+```
+
+`make cross` replays only the committed corpus, whose inputs were kept for x86
+coverage, so it never sees a divergence that only an input x86 coverage drops
+would show. With `fe_set_b32_limit` made to accept x = p in the ppc64 build
+alone, replaying the corpus showed nothing, and the oracle reported the
+divergence after 12 seconds of fuzzing `field`. An input takes 120 to 220 µs per
+architecture under qemu, against 3.8 ms for a `field` input through every x86
+build, and the emulators share the fuzzer's core. win64 needs wine. `make
+libafl-oracle-selftest` checks that the oracle reports a flipped transcript byte.
 
 ## CI
 

@@ -29,6 +29,13 @@ FUZZ_VALUE_PROFILE ?= field scalar
 CARGO        ?= cargo
 LIBAFL_CORES ?=
 LIBAFL_ARGS  ?=
+# `make libafl-fuzz ORACLE_ARCHES='arm ppc64'` also runs inputs on those
+# architectures' replay builds in ORACLE_DIR, from `make cross-replays` (or
+# `make docker-cross-replays` with ORACLE_DIR=$(BUILD)/docker/cross): every input
+# LibAFL keeps, and a fraction ORACLE_RATE of all the others.
+ORACLE_ARCHES ?=
+ORACLE_DIR    ?= $(BUILD)/cross
+ORACLE_RATE   ?= 0.01
 DOCKER      ?= docker
 CROSS_IMAGE ?= diffsecp-cross
 # `make coverage` builds with this variant's flags minus its sanitizers, and
@@ -83,7 +90,8 @@ MUTANT_BUILDS_H     := \#define DIFFSECP_MUTANT_BUILDS(X) $(foreach v,$(MUTANT_B
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
         fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
         mutation-score libafl-fuzz $(TARGETS:%=libafl-fuzz-%) libafl-selftest $(TARGETS:%=libafl-selftest-%) \
-        coverage readme-coverage cross cross-selftest cross-image docker-cross docker-cross-selftest clean FORCE
+        libafl-oracle-selftest coverage readme-coverage cross cross-selftest cross-replays cross-image \
+        docker-cross docker-cross-selftest docker-cross-replays clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -251,6 +259,12 @@ $(BUILD)/selftest/libafl_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants
 # in TARGETS, wrapped at the core count, so `make -j libafl-fuzz` spreads them.
 libafl_cores = $(or $(LIBAFL_CORES),$$(( ($$(echo $(TARGETS) | tr ' ' '\n' | grep -nx $(1) | cut -d: -f1) - 1) % $$(nproc) )))
 
+# The oracle flags for target $(1): one replay process per architecture in
+# ORACLE_ARCHES, run under its emulator. Input files go in $(BUILD)/oracle,
+# relative so wine resolves them too.
+libafl_oracle = $(if $(ORACLE_ARCHES),--oracle-dir $(BUILD)/oracle --oracle-rate $(ORACLE_RATE) \
+                $(foreach a,$(ORACLE_ARCHES),--oracle '$(a)=$(strip $($(a)_RUN) $(ORACLE_DIR)/$(a)/replay$($(a)_EXE)) $(1)'))
+
 # Like fuzz-%, on LibAFL. Its whole queue, seeds included, goes to
 # $(BUILD)/new/<target> for `make merge`. LibAFL keeps fuzzing past a
 # divergence, so a new reproducer in $(BUILD)/crashes is what fails the run.
@@ -262,7 +276,7 @@ $(TARGETS:%=libafl-fuzz-%): libafl-fuzz-%: $(BUILD)/libafl_% | $(CORPUS)/%
 	if ! $< --seeds $(CORPUS)/$* --queue $(BUILD)/new/$* --crashes $(BUILD)/crashes --prefix $*- \
 	     $(if $(FUZZ_DICT),$(addprefix --dict ,$(FUZZ_DICT)/common.dict $(wildcard $(FUZZ_DICT)/$*.dict))) \
 	     $(if $(filter $*,$(FUZZ_VALUE_PROFILE)),--value-profile) --cores $(call libafl_cores,$*) \
-	     --time $(FUZZ_TIME) $(LIBAFL_ARGS) > $$log 2>&1; then \
+	     $(call libafl_oracle,$*) --time $(FUZZ_TIME) $(LIBAFL_ARGS) > $$log 2>&1; then \
 		tail -n 40 $$log; echo "FAIL $*: see $$log"; exit 1; \
 	fi; \
 	if [ $$(ls $(BUILD)/crashes | grep -c '^$*-') -gt $$before ]; then \
@@ -280,6 +294,19 @@ $(TARGETS:%=libafl-selftest-%): libafl-selftest-%: $(BUILD)/selftest/libafl_% | 
 	   --time 10 > $$log 2>&1; \
 	if [ -z "$$(ls $$dir/crashes 2>/dev/null)" ] || ! grep -q 'diverges between $(REFERENCE) and selftest' $$log; then \
 		tail -n 20 $$log; echo "FAIL $@: divergence from selftest not reported"; exit 1; \
+	fi; \
+	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
+
+# Proves the oracle reports a divergence: the reference architecture's replay
+# with one transcript byte flipped, cross_selftest, must differ on the corpus.
+libafl-oracle-selftest: ORACLE_ARCHES := cross_selftest
+libafl-oracle-selftest: ORACLE_RATE := 1
+libafl-oracle-selftest: $(BUILD)/libafl_field | $(CORPUS)/field
+	@log=$(BUILD)/$@.log; dir=$(BUILD)/$@; rm -rf $$dir; \
+	$< --seeds $(CORPUS)/field --queue $$dir/new --crashes $$dir/crashes --cores $(call libafl_cores,field) \
+	   --time 10 $(call libafl_oracle,field) > $$log 2>&1; \
+	if [ -z "$$(ls $$dir/crashes 2>/dev/null)" ] || ! grep -q 'reference and cross_selftest' $$log; then \
+		tail -n 20 $$log; echo "FAIL $@: divergence from cross_selftest not reported"; exit 1; \
 	fi; \
 	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
 
@@ -370,10 +397,13 @@ cross-selftest: $(CROSS_REF) $(BUILD)/cross/cross_selftest/digests
 	done; \
 	echo "ok   cross-selftest: $$(grep -c '^>' $(BUILD)/cross/selftest.diff) inputs diverge from $(CROSS_REFERENCE)"
 
-# `make docker-cross` and `make docker-cross-selftest` run their goal in a
-# container with the cross toolchains, qemu-user and wine. The corpus is seeded
-# on the host first, so the image needs no libFuzzer.
-DOCKER_GOALS := cross cross-selftest
+# Only the replay binaries, for the oracle of `make libafl-fuzz`.
+cross-replays: $(foreach a,$(ARCHES) cross_selftest,$(BUILD)/cross/$(a)/replay$($(a)_EXE))
+
+# `make docker-cross`, `make docker-cross-selftest` and `make docker-cross-replays`
+# run their goal in a container with the cross toolchains, qemu-user and wine.
+# The corpus is seeded on the host first, so the image needs no libFuzzer.
+DOCKER_GOALS := cross cross-selftest cross-replays
 
 cross-image:
 	$(DOCKER) build -t $(CROSS_IMAGE) ci
