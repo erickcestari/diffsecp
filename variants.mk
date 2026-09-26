@@ -28,10 +28,9 @@ RELEASE_CFLAGS += $(LIBSECP_ASM_X86_64)
 endif
 
 # Steers the fuzzer: coverage, ASan, UBSan, and libsecp's VERIFY checks, which
-# also catch the harness calling internals outside their contract. It also
-# reports where each operand lies in the input (src/fuzz.c).
+# also catch the harness calling internals outside their contract.
 guide_CC     := $(FUZZ_CC)
-guide_CFLAGS := -O1 -DVERIFY -DDIFFSECP_NOTE_READS $(SANITIZE_CFLAGS)
+guide_CFLAGS := -O1 -DVERIFY $(SANITIZE_CFLAGS)
 
 # The same on the int64 arithmetic (10x26 field, 8x32 scalar, 32-bit modinv),
 # which guide never runs, so its branches also get coverage feedback.

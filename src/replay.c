@@ -1,6 +1,6 @@
 /* Runs inputs through one build and prints a digest of each transcript, so builds
  * for different architectures can be compared out of process, after the fact or
- * per input by libafl/'s oracle.
+ * per input by the oracle in src/oracle.h.
  *
  *   replay TARGET          reads input paths from stdin, one per line, and
  *                          prints "TARGET DIGEST PATH" for each
@@ -28,17 +28,6 @@
 #define VARIANT DIFFSECP_CAT(diffsecp_variant_, DIFFSECP_VARIANT)
 
 extern const struct diffsecp_variant VARIANT;
-
-#ifdef DIFFSECP_NOTE_READS
-/* The coverage build uses guide's flags, whose reads report here; replay has no
- * use for them. */
-void diffsecp_note_read(const unsigned char *p, size_t n);
-
-void diffsecp_note_read(const unsigned char *p, size_t n) {
-    (void)p;
-    (void)n;
-}
-#endif
 
 /* One byte over the limit, to tell oversized inputs from ones that fit exactly. */
 static unsigned char input[DIFFSECP_INPUT_MAX + 1];

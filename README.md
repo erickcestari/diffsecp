@@ -20,8 +20,7 @@ agree on inputs nobody wrote down.
 clang with libFuzzer, gcc, GNU make, binutils (`objcopy`) and python3, plus
 `llvm-profdata` and `llvm-cov` of the same LLVM for `make coverage`. Docker for
 cross-architecture runs, unless GCC 14 cross toolchains, clang 19 and qemu-user
-are installed. cargo with Rust 1.89 or newer for `make libafl-fuzz`, plus ninja
-and glib for `make qemu-fuzz`.
+are installed.
 
 ## Usage
 
@@ -30,7 +29,6 @@ git submodule update --init
 make -j
 make check                                         # selftest, corpus replay, short fuzz run
 make -j fuzz FUZZ_TIME=3600                        # fuzz every target from the corpus for an hour
-make -j libafl-fuzz FUZZ_TIME=3600                 # the same with LibAFL
 make merge                                         # add the new inputs that raise coverage to the corpus
 make coverage                                      # what the corpus reaches, in build/coverage
 make mutation-score                                # which planted bugs the corpus exposes
@@ -95,8 +93,8 @@ Builds for other architectures can't share a process, so `make cross` replays
 the corpus out of process instead. `src/replay.c` runs one build over every
 corpus input and prints a digest of each transcript. It is built statically for
 each entry in `arches.mk` and run under qemu-user or wine, and the digests are
-compared against x86_64. `make libafl-fuzz` can also compare each input while
-fuzzing (see LibAFL).
+compared against x86_64. `make fuzz` can also compare inputs with the other
+architectures while fuzzing (see Oracle).
 
 The architectures follow the Guix release targets that run on Linux or Wine:
 32-bit ARM, aarch64, riscv64, big-endian ppc64 and win64, built with GCC 14 as
@@ -144,8 +142,7 @@ includes it.
 
 `corpus/<target>` is committed. It was grown by coverage-guided fuzzing and
 minimized with `-merge=1`. `make check` replays it through every variant and
-`make cross` on every architecture, together with `corpus-arch/<arch>/<target>`
-from `make qemu-merge` (see QEMU).
+`make cross` on every architecture.
 
 `make fuzz` writes new inputs to `build/new` and reproducers to `build/crashes`,
 and `FUZZ_ARGS` passes libFuzzer flags such as `-fork=8`. Each target mutates
@@ -199,89 +196,26 @@ the difference, or nothing recorded it. A missed one was never triggered.
 `DIFFSECP_MUTANTS=off` fuzzes without the mutants, so an evaluation can score a
 run by what didn't steer it.
 
-## LibAFL
+## Oracle
 
-`make libafl-fuzz` fuzzes the same harness with LibAFL. `libafl/` builds a Rust
-staticlib that `src/fuzz.c` and the variant objects link against into
-`build/libafl_<target>`. It takes the same seeds, dictionaries and
-`FUZZ_VALUE_PROFILE` targets, and writes to `build/new` and `build/crashes`, so
-`make merge` and replaying a reproducer with `build/fuzz_<target>` work
-unchanged. Its queue also holds the seeds it keeps, which `make merge` skips.
-LibAFL keeps fuzzing past a divergence, so the run fails when it leaves a
-reproducer. Each target fuzzes on the core at its position in `TARGETS`;
-`LIBAFL_CORES=0-3` gives every target those cores instead, and `LIBAFL_ARGS`
-passes flags such as `--timeout`. `make libafl-selftest` checks that it reports
-a divergence, as `make selftest` does.
-
-It keeps inputs that reach new edges in the guide builds, trigger or kill a
-mutant, or, for value profile targets, add a value profile feature. The value
-profile is libFuzzer's, computed by `libafl/inprocess/src/cmp.c`: LibAFL's own
-keeps only each compare's best Hamming similarity, and with it LibAFL killed
-fewer `scalar` mutants than libFuzzer. In four five-minute runs per target with
-mutant feedback off, its corpora killed every `field` mutant in all four runs,
-including the one at x = p, which libFuzzer's corpora missed in all four. On
-`scalar` both engines killed the same mutants. Coverage was identical.
-
-It also mutates each operand of 32 bytes or more as a 256-bit number
-(`libafl/inprocess/src/operands.rs`), found where the guide build reports reading
-it (`-DDIFFSECP_NOTE_READS`). It adds or subtracts a few units with carries across
-the whole operand, sets it to a 32-byte dictionary token plus or minus two, or
-fills one limb of the 5x52, 10x26, 4x64 or 8x32 layout with ones or zeros. Havoc
-does none of this, since its arithmetic stops at 4-byte words. Starting from an
-empty corpus, in four five-minute runs per target, it kept an input with x = p
-in every `field` run and one with s = (n-1)/2 in every `scalar` run. Without it,
-LibAFL kept them in three and none of the four, and libFuzzer in none and two. A
-stage that first set every operand to every token gained nothing over the
-mutator, so there is no such stage. `LIBAFL_ARGS='--u256 false'` turns the
-mutator off.
-
-`ORACLE_ARCHES` also compares inputs with other architectures while fuzzing.
-Each listed architecture's static replay build keeps running under its
-emulator. Every input LibAFL keeps, plus a fraction `ORACLE_RATE` (default
-0.01) of all the others, must give the digest of the transcript every x86 build
-agreed on:
+`ORACLE_ARCHES` compares inputs with other architectures while fuzzing. Each
+listed architecture's static replay build keeps running under its emulator, and
+a fraction `ORACLE_RATE` (default 0.01) of the inputs must give the digest of
+the transcript every x86 build agreed on (`src/oracle.h`):
 
 ```sh
 make docker-cross-replays   # or `make cross-replays` with the cross toolchains
-make -j libafl-fuzz ORACLE_DIR=build/docker/cross ORACLE_ARCHES='arm aarch64 riscv64 ppc64 ppc64le'
+make -j fuzz ORACLE_DIR=build/docker/cross ORACLE_ARCHES='arm aarch64 riscv64 ppc64 ppc64le'
 ```
 
 `make cross` replays only the committed corpus, whose inputs were kept for x86
-coverage, so it never sees a divergence that only an input x86 coverage drops
+coverage, so it never sees a divergence that only an input the fuzzer drops
 would show. With `fe_set_b32_limit` made to accept x = p in the ppc64 build
 alone, replaying the corpus showed nothing, and the oracle reported the
-divergence after 12 seconds of fuzzing `field`. An input takes 120 to 220 µs per
-architecture under qemu, against 3.8 ms for a `field` input through every x86
-build, and the emulators share the fuzzer's core. win64 needs wine. `make
-libafl-oracle-selftest` checks that the oracle reports a flipped transcript byte.
-
-## QEMU
-
-`make qemu-fuzz QEMU_ARCH=aarch64` fuzzes on another architecture under
-libafl_qemu (`libafl/qemu`). Coverage then comes from the machine code that
-architecture's compiler emitted, where the in-process fuzzers only see clang
-`-O1` on x86. `src/guest.c` runs each input in a static build for the
-architecture inside QEMU. The same file built for the host runs it natively as
-the reference, and a transcript that differs is a divergence. `QEMU_ARCH` is
-arm, aarch64, aarch64_clang or riscv64, since libafl_qemu has no ppc64:
-
-```sh
-make docker-cross-guests    # or `make cross-guests` with the cross toolchains
-make -j qemu-fuzz QEMU_ARCH=aarch64 GUEST_DIR=build/docker/cross FUZZ_TIME=3600
-make qemu-merge QEMU_ARCH=aarch64 GUEST_DIR=build/docker/cross
-```
-
-libafl_qemu builds QEMU once per architecture, which takes minutes and needs
-network, ninja and glib. In three minutes on aarch64 it reached guest edges the
-committed corpus misses on `ecdsa`, `group`, `keys` and `ellswift`. Ten of those
-edges only came from inputs that add no x86 coverage, which `make merge` would
-drop. `make qemu-merge` keeps the inputs that add guest coverage in
-`corpus-arch/<arch>/<target>`, and `make check` and `make cross` replay them with
-the corpus, so every architecture, ppc64 included, runs them. With
-`fe_set_b32_limit` made to accept x = p in the aarch64 guest alone, the fuzzer
-reported the divergence about 600 executions in. It runs `ecdsa` at 3,600 to
-8,600 executions per second, depending on the architecture. `make qemu-selftest`
-checks that a flipped transcript byte in the guest is reported.
+divergence after two minutes of fuzzing `field`. An input takes 120 to 220 µs
+per architecture under qemu, against 3.8 ms for a `field` input through every
+x86 build. win64 needs wine. `make oracle-selftest` checks that the oracle
+reports a flipped transcript byte.
 
 ## CI
 

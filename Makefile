@@ -1,6 +1,6 @@
 # Builds every variant in variants.mk, then one libFuzzer binary per target that
 # links all variants side by side. `make cross` replays the corpus on the
-# architectures in arches.mk instead, and `make libafl-fuzz` fuzzes with LibAFL.
+# architectures in arches.mk instead.
 
 SECP        ?= external/secp256k1
 BUILD       ?= build
@@ -24,26 +24,13 @@ FUZZ_DICT   ?= dict
 # compare's operands are. It finds value bugs in the arithmetic targets, whose
 # coverage it leaves unchanged, but bloats the corpus and costs coverage elsewhere.
 FUZZ_VALUE_PROFILE ?= field scalar
-# `make libafl-fuzz`: the cores each target fuzzes on (default: one core per
-# target, by its position in TARGETS) and extra flags for build/libafl_<target>.
-CARGO        ?= cargo
-LIBAFL_CORES ?=
-LIBAFL_ARGS  ?=
-# `make libafl-fuzz ORACLE_ARCHES='arm ppc64'` also runs inputs on those
-# architectures' replay builds in ORACLE_DIR, from `make cross-replays` (or
-# `make docker-cross-replays` with ORACLE_DIR=$(BUILD)/docker/cross): every input
-# LibAFL keeps, and a fraction ORACLE_RATE of all the others.
+# `make fuzz ORACLE_ARCHES='arm ppc64'` also runs a fraction ORACLE_RATE of the
+# inputs on those architectures' replay builds in ORACLE_DIR, from `make
+# cross-replays` (or `make docker-cross-replays` with
+# ORACLE_DIR=$(BUILD)/docker/cross).
 ORACLE_ARCHES ?=
 ORACLE_DIR    ?= $(BUILD)/cross
 ORACLE_RATE   ?= 0.01
-# `make qemu-fuzz`: the architecture libafl/qemu emulates, whose guest build is
-# in GUEST_DIR, from `make cross-guests` (or `make docker-cross-guests` with
-# GUEST_DIR=$(BUILD)/docker/cross).
-QEMU_ARCH ?= aarch64
-GUEST_DIR ?= $(BUILD)/cross
-# Inputs `make qemu-merge` keeps for reaching another architecture's machine
-# code where the corpus doesn't: <arch>/<target>, replayed with the corpus.
-CORPUS_ARCH ?= corpus-arch
 DOCKER      ?= docker
 CROSS_IMAGE ?= diffsecp-cross
 # `make coverage` builds with this variant's flags minus its sanitizers, and
@@ -82,11 +69,6 @@ cross_selftest_CFLAGS := $($(CROSS_REFERENCE)_CFLAGS) -DDIFFSECP_SELFTEST
 cross_selftest_RUN    := $($(CROSS_REFERENCE)_RUN)
 cross_selftest_EXE    := $($(CROSS_REFERENCE)_EXE)
 
-# The same for `make qemu-selftest`: an aarch64 guest with the byte flipped.
-qemu_selftest_CC     := $(aarch64_CC)
-qemu_selftest_CFLAGS := $(aarch64_CFLAGS) -DDIFFSECP_SELFTEST
-qemu_selftest_RUN    := $(aarch64_RUN)
-
 VARIANT_OBJS  := $(VARIANTS:%=$(BUILD)/variants/%.o)
 SELFTEST_OBJS := $(VARIANT_OBJS) $(BUILD)/variants/selftest.o
 MUTANT_OBJS   := $(MUTANT_BUILDS:%=$(BUILD)/variants/%.o)
@@ -96,17 +78,19 @@ FUZZ_COMPILE   = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=fuzzer,address,undef
                  -fno-sanitize-recover=all
 # Merging and minimizing need the flag too, or they drop what value profile found.
 value_profile  = $(if $(filter $(1),$(FUZZ_VALUE_PROFILE)),-use_value_profile=1)
+# The oracle's environment for target $(1) (src/oracle.h): one replay process per
+# architecture in ORACLE_ARCHES, under its emulator. Input files go in
+# $(BUILD)/oracle, relative so wine resolves them too.
+oracle_env     = $(if $(ORACLE_ARCHES),DIFFSECP_ORACLE_DIR=$(BUILD)/oracle DIFFSECP_ORACLE_RATE=$(ORACLE_RATE) \
+                 DIFFSECP_ORACLE='$(foreach a,$(ORACLE_ARCHES),$(a)=$(strip $($(a)_RUN) $(ORACLE_DIR)/$(a)/replay$($(a)_EXE)) $(1);)')
 VARIANTS_H          := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS),X($(v)))
 SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) selftest,X($(v)))
 MUTANT_BUILDS_H     := \#define DIFFSECP_MUTANT_BUILDS(X) $(foreach v,$(MUTANT_BUILDS),X($(v)))
 
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
         fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
-        mutation-score libafl-fuzz $(TARGETS:%=libafl-fuzz-%) libafl-selftest $(TARGETS:%=libafl-selftest-%) \
-        libafl-oracle-selftest qemu-fuzz $(TARGETS:%=qemu-fuzz-%) qemu-merge $(TARGETS:%=qemu-merge-%) \
-        qemu-selftest coverage readme-coverage \
-        cross cross-selftest cross-replays cross-guests cross-image docker-cross docker-cross-selftest \
-        docker-cross-replays docker-cross-guests clean FORCE
+        mutation-score oracle-selftest coverage readme-coverage cross cross-selftest cross-replays \
+        cross-image docker-cross docker-cross-selftest docker-cross-replays clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -166,7 +150,7 @@ check: selftest $(TARGETS:%=check-%)
 $(TARGETS:%=check-%): check-%: $(BUILD)/fuzz_% | $(CORPUS)/%
 	@log=$(BUILD)/$@.log; new=$(BUILD)/$@.new; \
 	rm -rf $$new && mkdir -p $$new; \
-	if ! $< -runs=$(SMOKE_RUNS) -seed=1 $$new $(CORPUS)/$* $(wildcard $(CORPUS_ARCH)/*/$*) > $$log 2>&1; then \
+	if ! $< -runs=$(SMOKE_RUNS) -seed=1 $$new $(CORPUS)/$* > $$log 2>&1; then \
 		cat $$log; echo "FAIL $*"; exit 1; \
 	fi; \
 	echo "ok   $*: $$(tail -n 1 $$log)"
@@ -194,12 +178,13 @@ $(MISSING_CORPORA): $(CORPUS)/%: $(BUILD)/fuzz_%
 
 # Long runs from the corpus; `make -j fuzz` runs every target at once. New
 # inputs land in $(BUILD)/new/<target> and reproducers in $(BUILD)/crashes.
+# ORACLE_ARCHES also compares inputs with other architectures.
 fuzz: $(TARGETS:%=fuzz-%)
 
 $(TARGETS:%=fuzz-%): fuzz-%: $(BUILD)/fuzz_% | $(CORPUS)/%
 	@log=$(BUILD)/$@.log; mkdir -p $(BUILD)/new/$* $(BUILD)/crashes; \
 	$(if $(FUZZ_DICT),cat $(FUZZ_DICT)/common.dict $(wildcard $(FUZZ_DICT)/$*.dict) > $(BUILD)/$*.dict;) \
-	if ! $< -max_total_time=$(FUZZ_TIME) -artifact_prefix=$(BUILD)/crashes/$*- \
+	if ! $(call oracle_env,$*) $< -max_total_time=$(FUZZ_TIME) -artifact_prefix=$(BUILD)/crashes/$*- \
 	     $(if $(FUZZ_DICT),-dict=$(BUILD)/$*.dict) $(call value_profile,$*) \
 	     $(FUZZ_ARGS) $(BUILD)/new/$* $(CORPUS)/$* > $$log 2>&1; then \
 		tail -n 40 $$log; echo "FAIL $*: see $$log and $(BUILD)/crashes"; exit 1; \
@@ -246,157 +231,15 @@ mutation-score: $(FUZZERS) | $(TARGETS:%=$(CORPUS)/%)
 		$(BUILD)/mutation-score.txt
 	@cat $(BUILD)/mutation-score.summary
 
-# The same harness on LibAFL (libafl/): src/fuzz.c and the variant objects linked
-# with a Rust staticlib whose libafl_main runs the fuzzer. The whole archive is
-# linked so libafl_main and the sanitizer coverage callbacks are kept.
-LIBAFL_LIB     := $(BUILD)/libafl/target/release/libdiffsecp_inprocess.a
-LIBAFL_COMPILE  = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=address,undefined -fno-sanitize-recover=all
-LIBAFL_LINK    := -Wl,--whole-archive $(LIBAFL_LIB) -Wl,--no-whole-archive -lgcc_s -lutil -lrt -lpthread -lm -ldl
-
-# cargo decides what to rebuild; the archive only changes when something did.
-$(LIBAFL_LIB): FORCE
-	$(CARGO) build --release --quiet --manifest-path libafl/Cargo.toml --target-dir $(BUILD)/libafl/target
-
-$(BUILD)/libafl/flags: FORCE | $(BUILD)/libafl
-	@echo '$(LIBAFL_COMPILE)' | cmp -s - $@ || echo '$(LIBAFL_COMPILE)' > $@
-
-$(BUILD)/libafl_%: src/fuzz.c src/diffsecp.h $(BUILD)/variants.h $(MUTANTS_H) $(BUILD)/libafl/flags \
-                   $(VARIANT_OBJS) $(MUTANT_OBJS) $(LIBAFL_LIB)
-	$(LIBAFL_COMPILE) -I$(BUILD) -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) $(MUTANT_OBJS) \
-		$(LIBAFL_LINK) -o $@
-
-$(BUILD)/selftest/libafl_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h $(MUTANTS_H) \
-                            $(BUILD)/libafl/flags $(SELFTEST_OBJS) $(MUTANT_OBJS) $(LIBAFL_LIB)
-	$(LIBAFL_COMPILE) -I$(BUILD)/selftest -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) \
-		$(MUTANT_OBJS) $(LIBAFL_LINK) -o $@
-
-# The core a target fuzzes on unless LIBAFL_CORES says otherwise: its position
-# in TARGETS, wrapped at the core count, so `make -j libafl-fuzz` spreads them.
-libafl_cores = $(or $(LIBAFL_CORES),$$(( ($$(echo $(TARGETS) | tr ' ' '\n' | grep -nx $(1) | cut -d: -f1) - 1) % $$(nproc) )))
-
-# The oracle flags for target $(1): one replay process per architecture in
-# ORACLE_ARCHES, run under its emulator. Input files go in $(BUILD)/oracle,
-# relative so wine resolves them too.
-libafl_oracle = $(if $(ORACLE_ARCHES),--oracle-dir $(BUILD)/oracle --oracle-rate $(ORACLE_RATE) \
-                $(foreach a,$(ORACLE_ARCHES),--oracle '$(a)=$(strip $($(a)_RUN) $(ORACLE_DIR)/$(a)/replay$($(a)_EXE)) $(1)'))
-
-# Like fuzz-%, on LibAFL. Its whole queue, seeds included, goes to
-# $(BUILD)/new/<target> for `make merge`. LibAFL keeps fuzzing past a
-# divergence, so a new reproducer in $(BUILD)/crashes is what fails the run.
-libafl-fuzz: $(TARGETS:%=libafl-fuzz-%)
-
-$(TARGETS:%=libafl-fuzz-%): libafl-fuzz-%: $(BUILD)/libafl_% | $(CORPUS)/%
-	@log=$(BUILD)/$@.log; mkdir -p $(BUILD)/new/$* $(BUILD)/crashes; \
-	before=$$(ls $(BUILD)/crashes | grep -c '^$*-'); \
-	if ! $< --seeds $(CORPUS)/$* --queue $(BUILD)/new/$* --crashes $(BUILD)/crashes --prefix $*- \
-	     $(if $(FUZZ_DICT),$(addprefix --dict ,$(FUZZ_DICT)/common.dict $(wildcard $(FUZZ_DICT)/$*.dict))) \
-	     $(if $(filter $*,$(FUZZ_VALUE_PROFILE)),--value-profile) --cores $(call libafl_cores,$*) \
-	     $(call libafl_oracle,$*) --time $(FUZZ_TIME) $(LIBAFL_ARGS) > $$log 2>&1; then \
-		tail -n 40 $$log; echo "FAIL $*: see $$log"; exit 1; \
-	fi; \
-	if [ $$(ls $(BUILD)/crashes | grep -c '^$*-') -gt $$before ]; then \
-		grep -m 1 -A 2 'diverges' $$log; echo "FAIL $*: see $$log and $(BUILD)/crashes"; exit 1; \
-	fi; \
-	echo "ok   $*: $$(grep '(GLOBAL)' $$log | tail -n 1 | sed 's/.*(GLOBAL) //')"
-
-# Proves LibAFL reports a divergence: fuzzes briefly with the selftest build
-# linked in and requires a reproducer. Needs cargo, so `make check` leaves it out.
-libafl-selftest: $(TARGETS:%=libafl-selftest-%)
-
-$(TARGETS:%=libafl-selftest-%): libafl-selftest-%: $(BUILD)/selftest/libafl_% | $(CORPUS)/%
-	@log=$(BUILD)/$@.log; dir=$(BUILD)/selftest/libafl-$*; rm -rf $$dir; \
-	$< --seeds $(CORPUS)/$* --queue $$dir/new --crashes $$dir/crashes --cores $(call libafl_cores,$*) \
-	   --time 10 > $$log 2>&1; \
-	if [ -z "$$(ls $$dir/crashes 2>/dev/null)" ] || ! grep -q 'diverges between $(REFERENCE) and selftest' $$log; then \
-		tail -n 20 $$log; echo "FAIL $@: divergence from selftest not reported"; exit 1; \
-	fi; \
-	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
-
 # Proves the oracle reports a divergence: the reference architecture's replay
 # with one transcript byte flipped, cross_selftest, must differ on the corpus.
-libafl-oracle-selftest: ORACLE_ARCHES := cross_selftest
-libafl-oracle-selftest: ORACLE_RATE := 1
-libafl-oracle-selftest: $(BUILD)/libafl_field | $(CORPUS)/field
-	@log=$(BUILD)/$@.log; dir=$(BUILD)/$@; rm -rf $$dir; \
-	$< --seeds $(CORPUS)/field --queue $$dir/new --crashes $$dir/crashes --cores $(call libafl_cores,field) \
-	   --time 10 $(call libafl_oracle,field) > $$log 2>&1; \
-	if [ -z "$$(ls $$dir/crashes 2>/dev/null)" ] || ! grep -q 'reference and cross_selftest' $$log; then \
+oracle-selftest: ORACLE_ARCHES := cross_selftest
+oracle-selftest: ORACLE_RATE := 1
+oracle-selftest: $(BUILD)/fuzz_field | $(CORPUS)/field
+	@log=$(BUILD)/$@.log; new=$(BUILD)/$@.new; rm -rf $$new && mkdir -p $$new; \
+	if $(call oracle_env,field) $< -runs=$(SMOKE_RUNS) -seed=1 -artifact_prefix=$(BUILD)/$@- \
+	   $$new $(CORPUS)/field > $$log 2>&1 || ! grep -q 'reference and cross_selftest' $$log; then \
 		tail -n 20 $$log; echo "FAIL $@: divergence from cross_selftest not reported"; exit 1; \
-	fi; \
-	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
-
-# The QEMU fuzzer (libafl/qemu): a target built for another architecture runs
-# under libafl_qemu, steered by coverage of that architecture's machine code, and
-# each transcript is compared with the reference, src/guest.c built for the host.
-# libafl_qemu builds QEMU for one architecture at a time, so each gets its own
-# cargo build; aarch64_clang runs on the aarch64 one. It has no ppc64.
-QEMU_ARCHES              := arm aarch64 aarch64_clang riscv64
-QEMU_FEATURE_arm         := arm
-QEMU_FEATURE_aarch64     := aarch64
-QEMU_FEATURE_aarch64_clang := aarch64
-QEMU_FEATURE_riscv64     := riscv64
-QEMU_FEATURE_qemu_selftest := aarch64
-qemu_fuzzer = $(BUILD)/qemu/$(QEMU_FEATURE_$(1))/release/diffsecp_qemu
-
-REFERENCE_COMPILE = $(GCC) $(COMMON_CFLAGS) $(RELEASE_CFLAGS) -I$(SECP) -I$(SECP)/include \
-                    -DDIFFSECP_VARIANT=reference -DDIFFSECP_REFERENCE -DDIFFSECP_NOTE_READS
-
-$(BUILD)/qemu/reference/flags: FORCE | $(BUILD)/qemu/reference
-	@echo '$(REFERENCE_COMPILE)' | cmp -s - $@ || echo '$(REFERENCE_COMPILE)' > $@
-
-$(BUILD)/qemu/reference/%.o: src/%.c $(BUILD)/qemu/reference/flags
-	$(REFERENCE_COMPILE) -MMD -MP -MT $@ -MF $(@:.o=.d) -c $< -o $@
-
-$(BUILD)/qemu/reference/libdiffsecp_reference.a: $(BUILD)/qemu/reference/variant.o $(BUILD)/qemu/reference/guest.o
-	rm -f $@ && ar rcs $@ $^
-
-# cargo decides what to rebuild; QEMU itself is built once per target directory.
-# The pinned QEMU redefines FUTEX_CMD_MASK, which newer kernel headers define,
-# and builds with -Werror.
-$(BUILD)/qemu/%/release/diffsecp_qemu: $(BUILD)/qemu/reference/libdiffsecp_reference.a FORCE
-	CFLAGS=-Wno-macro-redefined DIFFSECP_REFERENCE_DIR=$(abspath $(BUILD)/qemu/reference) \
-		$(CARGO) build --release --quiet \
-		--manifest-path libafl/Cargo.toml -p diffsecp_qemu --features $* --target-dir $(BUILD)/qemu/$*
-
-# Like libafl-fuzz-%, on QEMU_ARCH. New inputs go to $(BUILD)/new-<arch>/<target>
-# and reproducers to $(BUILD)/crashes as <target>-<arch>-*.
-qemu-fuzz: $(TARGETS:%=qemu-fuzz-%)
-
-$(TARGETS:%=qemu-fuzz-%): qemu-fuzz-%: $(call qemu_fuzzer,$(QEMU_ARCH)) | $(CORPUS)/%
-	@log=$(BUILD)/$@-$(QEMU_ARCH).log; new=$(BUILD)/new-$(QEMU_ARCH)/$*; prefix=$*-$(QEMU_ARCH)-; \
-	mkdir -p $$new $(BUILD)/crashes; before=$$(ls $(BUILD)/crashes | grep -c "^$$prefix"); \
-	if ! $< --guest $(GUEST_DIR)/$(QEMU_ARCH)/guest --target $* --seeds $(CORPUS)/$* --queue $$new \
-	     --crashes $(BUILD)/crashes --prefix $$prefix \
-	     $(if $(FUZZ_DICT),$(addprefix --dict ,$(FUZZ_DICT)/common.dict $(wildcard $(FUZZ_DICT)/$*.dict))) \
-	     --cores $(call libafl_cores,$*) --time $(FUZZ_TIME) $(LIBAFL_ARGS) > $$log 2>&1; then \
-		tail -n 40 $$log; echo "FAIL $* on $(QEMU_ARCH): see $$log"; exit 1; \
-	fi; \
-	if [ $$(ls $(BUILD)/crashes | grep -c "^$$prefix") -gt $$before ]; then \
-		grep -m 1 -A 2 'diverges' $$log; echo "FAIL $* on $(QEMU_ARCH): see $$log and $(BUILD)/crashes"; exit 1; \
-	fi; \
-	echo "ok   $* on $(QEMU_ARCH): $$(grep '(GLOBAL)' $$log | tail -n 1 | sed 's/.*(GLOBAL) //')"
-
-# Adds to $(CORPUS_ARCH)/<arch>/<target> the inputs from a qemu-fuzz run that
-# reach guest edges the corpus doesn't. `make merge` keeps only what raises x86
-# coverage, so it would drop them.
-qemu-merge: $(TARGETS:%=qemu-merge-%)
-
-$(TARGETS:%=qemu-merge-%): qemu-merge-%: $(call qemu_fuzzer,$(QEMU_ARCH)) | $(CORPUS)/%
-	@log=$(BUILD)/$@-$(QEMU_ARCH).log; tmp=$(BUILD)/qemu-merge/$(QEMU_ARCH)/$*; \
-	rm -rf $$tmp; mkdir -p $(BUILD)/new-$(QEMU_ARCH)/$*; \
-	$< --guest $(GUEST_DIR)/$(QEMU_ARCH)/guest --target $* --seeds $(CORPUS)/$* --queue $$tmp/queue \
-	   --crashes $$tmp/crashes --cores $(call libafl_cores,$*) --merge-into $(CORPUS_ARCH)/$(QEMU_ARCH)/$* \
-	   --merge-from $(BUILD)/new-$(QEMU_ARCH)/$* > $$log 2>&1 || { cat $$log; exit 1; }; \
-	echo "ok   $* on $(QEMU_ARCH): $$(grep -o 'kept [0-9]* inputs' $$log)"
-
-# Proves the QEMU fuzzer reports a divergence: the aarch64 guest with one
-# transcript byte flipped, qemu_selftest, must differ from the reference.
-qemu-selftest: $(call qemu_fuzzer,qemu_selftest) | $(CORPUS)/field
-	@log=$(BUILD)/$@.log; dir=$(BUILD)/$@; rm -rf $$dir; \
-	$< --guest $(GUEST_DIR)/qemu_selftest/guest --target field --seeds $(CORPUS)/field --queue $$dir/new \
-	   --crashes $$dir/crashes --cores $(call libafl_cores,field) --time 10 > $$log 2>&1; \
-	if [ -z "$$(ls $$dir/crashes 2>/dev/null)" ] || ! grep -q 'reference and qemu_selftest' $$log; then \
-		tail -n 20 $$log; echo "FAIL $@: divergence from qemu_selftest not reported"; exit 1; \
 	fi; \
 	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
 
@@ -451,19 +294,15 @@ $(BUILD)/cross/$(1)/%.o: src/%.c $(BUILD)/cross/$(1)/flags
 $(BUILD)/cross/$(1)/replay$$($(1)_EXE): $(BUILD)/cross/$(1)/variant.o $(BUILD)/cross/$(1)/replay.o
 	$$($(1)_CC) -static $$^ -o $$@
 
-$(BUILD)/cross/$(1)/guest: $(BUILD)/cross/$(1)/variant.o $(BUILD)/cross/$(1)/guest.o
-	$$($(1)_CC) -static $$^ -o $$@
-
 $(BUILD)/cross/$(1)/digests: $(BUILD)/cross/$(1)/replay$$($(1)_EXE) FORCE | $(TARGETS:%=$(CORPUS)/%)
 	@for t in $(TARGETS); do \
-		find $(CORPUS)/$$$$t $$$$(ls -d $(CORPUS_ARCH)/*/$$$$t 2>/dev/null) -type f | LC_ALL=C sort | \
-			$$($(1)_RUN) $$< $$$$t || exit 1; \
+		find $(CORPUS)/$$$$t -type f | LC_ALL=C sort | $$($(1)_RUN) $$< $$$$t || exit 1; \
 	done > $$@.tmp
 	@mv $$@.tmp $$@
 
--include $(BUILD)/cross/$(1)/variant.d $(BUILD)/cross/$(1)/replay.d $(BUILD)/cross/$(1)/guest.d
+-include $(BUILD)/cross/$(1)/variant.d $(BUILD)/cross/$(1)/replay.d
 endef
-$(foreach a,$(ARCHES) cross_selftest qemu_selftest,$(eval $(call ARCH_RULE,$(a))))
+$(foreach a,$(ARCHES) cross_selftest,$(eval $(call ARCH_RULE,$(a))))
 
 CROSS_REF := $(BUILD)/cross/$(CROSS_REFERENCE)/digests
 
@@ -491,16 +330,13 @@ cross-selftest: $(CROSS_REF) $(BUILD)/cross/cross_selftest/digests
 	done; \
 	echo "ok   cross-selftest: $$(grep -c '^>' $(BUILD)/cross/selftest.diff) inputs diverge from $(CROSS_REFERENCE)"
 
-# Only the replay binaries, for the oracle of `make libafl-fuzz`.
+# Only the replay binaries, for the oracle of `make fuzz`.
 cross-replays: $(foreach a,$(ARCHES) cross_selftest,$(BUILD)/cross/$(a)/replay$($(a)_EXE))
-
-# The guests of `make qemu-fuzz`, for the architectures libafl_qemu emulates.
-cross-guests: $(foreach a,$(QEMU_ARCHES) qemu_selftest,$(BUILD)/cross/$(a)/guest)
 
 # `make docker-cross`, `make docker-cross-selftest` and `make docker-cross-replays`
 # run their goal in a container with the cross toolchains, qemu-user and wine.
 # The corpus is seeded on the host first, so the image needs no libFuzzer.
-DOCKER_GOALS := cross cross-selftest cross-replays cross-guests
+DOCKER_GOALS := cross cross-selftest cross-replays
 
 cross-image:
 	$(DOCKER) build -t $(CROSS_IMAGE) ci
@@ -513,11 +349,10 @@ $(DOCKER_GOALS:%=docker-%): docker-%: cross-image | $(TARGETS:%=$(CORPUS)/%)
 		-v $(CURDIR):/src -w /src $(CROSS_IMAGE) \
 		make -j$$(nproc) BUILD=$(BUILD)/docker CORPUS=$(CORPUS) $*
 
-$(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage $(BUILD)/libafl $(BUILD)/qemu/reference:
+$(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage:
 	mkdir -p $@
 
 clean:
 	rm -rf $(BUILD)
 
--include $(SELFTEST_OBJS:.o=.d) $(MUTANT_OBJS:.o=.d) $(BUILD)/coverage/variant.d $(BUILD)/coverage/replay.d \
-         $(BUILD)/qemu/reference/variant.d $(BUILD)/qemu/reference/guest.d
+-include $(SELFTEST_OBJS:.o=.d) $(MUTANT_OBJS:.o=.d) $(BUILD)/coverage/variant.d $(BUILD)/coverage/replay.d
