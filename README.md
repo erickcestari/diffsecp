@@ -186,8 +186,9 @@ them, where every architecture replays them. It costs about 8% of executions on
 `field`.
 
 `make mutation-score` replays the corpus and lists each mutant not killed. A
-masked mutant was triggered but no transcript showed it, so the harness would
-miss that bug. A missed one was never triggered. `DIFFSECP_MUTANTS=off` fuzzes
+masked mutant was triggered, so some input made its expression evaluate
+differently, but no transcript changed: the rest of the computation cancelled
+the difference, or nothing recorded it. A missed one was never triggered. `DIFFSECP_MUTANTS=off` fuzzes
 without the mutants, so an evaluation can score a run by what didn't steer it.
 
 ## CI
