@@ -4,3 +4,4 @@ leak-*
 oom-*
 slow-unit-*
 timeout-*
+/libafl/target/

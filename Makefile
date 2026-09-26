@@ -1,6 +1,6 @@
 # Builds every variant in variants.mk, then one libFuzzer binary per target that
 # links all variants side by side. `make cross` replays the corpus on the
-# architectures in arches.mk instead.
+# architectures in arches.mk instead, and `make libafl-fuzz` fuzzes with LibAFL.
 
 SECP        ?= external/secp256k1
 BUILD       ?= build
@@ -24,6 +24,11 @@ FUZZ_DICT   ?= dict
 # compare's operands are. It finds value bugs in the arithmetic targets, whose
 # coverage it leaves unchanged, but bloats the corpus and costs coverage elsewhere.
 FUZZ_VALUE_PROFILE ?= field scalar
+# `make libafl-fuzz`: the cores each target fuzzes on (default: one core per
+# target, by its position in TARGETS) and extra flags for build/libafl_<target>.
+CARGO        ?= cargo
+LIBAFL_CORES ?=
+LIBAFL_ARGS  ?=
 DOCKER      ?= docker
 CROSS_IMAGE ?= diffsecp-cross
 # `make coverage` builds with this variant's flags minus its sanitizers, and
@@ -76,7 +81,8 @@ SELFTEST_VARIANTS_H := \#define DIFFSECP_VARIANTS(X) $(foreach v,$(VARIANTS) sel
 
 .PHONY: all check $(TARGETS:%=check-%) selftest $(TARGETS:%=selftest-%) \
         fuzz $(TARGETS:%=fuzz-%) merge $(TARGETS:%=merge-%) minimize $(TARGETS:%=minimize-%) \
-        mutation-score coverage readme-coverage cross cross-selftest cross-image docker-cross docker-cross-selftest clean FORCE
+        mutation-score libafl-fuzz $(TARGETS:%=libafl-fuzz-%) libafl-selftest $(TARGETS:%=libafl-selftest-%) \
+        coverage readme-coverage cross cross-selftest cross-image docker-cross docker-cross-selftest clean FORCE
 .DELETE_ON_ERROR:
 
 all: $(FUZZERS)
@@ -214,6 +220,66 @@ mutation-score: $(FUZZERS) | $(TARGETS:%=$(CORPUS)/%)
 		$(BUILD)/mutation-score.txt
 	@cat $(BUILD)/mutation-score.summary
 
+# The same harness on LibAFL (libafl/): src/fuzz.c and the variant objects linked
+# with a Rust staticlib whose libafl_main runs the fuzzer. The whole archive is
+# linked so libafl_main and the sanitizer coverage callbacks are kept.
+LIBAFL_LIB     := $(BUILD)/libafl/target/release/libdiffsecp_inprocess.a
+LIBAFL_COMPILE  = $(FUZZ_CC) $(COMMON_CFLAGS) -O1 -fsanitize=address,undefined -fno-sanitize-recover=all
+LIBAFL_LINK    := -Wl,--whole-archive $(LIBAFL_LIB) -Wl,--no-whole-archive -lgcc_s -lutil -lrt -lpthread -lm -ldl
+
+# cargo decides what to rebuild; the archive only changes when something did.
+$(LIBAFL_LIB): FORCE
+	$(CARGO) build --release --quiet --manifest-path libafl/Cargo.toml --target-dir $(BUILD)/libafl/target
+
+$(BUILD)/libafl/flags: FORCE | $(BUILD)/libafl
+	@echo '$(LIBAFL_COMPILE)' | cmp -s - $@ || echo '$(LIBAFL_COMPILE)' > $@
+
+$(BUILD)/libafl_%: src/fuzz.c src/diffsecp.h $(BUILD)/variants.h $(MUTANTS_H) $(BUILD)/libafl/flags \
+                   $(VARIANT_OBJS) $(MUTANT_OBJ) $(LIBAFL_LIB)
+	$(LIBAFL_COMPILE) -I$(BUILD) -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) $(MUTANT_OBJ) \
+		$(LIBAFL_LINK) -o $@
+
+$(BUILD)/selftest/libafl_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h $(MUTANTS_H) \
+                            $(BUILD)/libafl/flags $(SELFTEST_OBJS) $(MUTANT_OBJ) $(LIBAFL_LIB)
+	$(LIBAFL_COMPILE) -I$(BUILD)/selftest -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) \
+		$(MUTANT_OBJ) $(LIBAFL_LINK) -o $@
+
+# The core a target fuzzes on unless LIBAFL_CORES says otherwise: its position
+# in TARGETS, wrapped at the core count, so `make -j libafl-fuzz` spreads them.
+libafl_cores = $(or $(LIBAFL_CORES),$$(( ($$(echo $(TARGETS) | tr ' ' '\n' | grep -nx $(1) | cut -d: -f1) - 1) % $$(nproc) )))
+
+# Like fuzz-%, on LibAFL. Its whole queue, seeds included, goes to
+# $(BUILD)/new/<target> for `make merge`. LibAFL keeps fuzzing past a
+# divergence, so a new reproducer in $(BUILD)/crashes is what fails the run.
+libafl-fuzz: $(TARGETS:%=libafl-fuzz-%)
+
+$(TARGETS:%=libafl-fuzz-%): libafl-fuzz-%: $(BUILD)/libafl_% | $(CORPUS)/%
+	@log=$(BUILD)/$@.log; mkdir -p $(BUILD)/new/$* $(BUILD)/crashes; \
+	before=$$(ls $(BUILD)/crashes | grep -c '^$*-'); \
+	if ! $< --seeds $(CORPUS)/$* --queue $(BUILD)/new/$* --crashes $(BUILD)/crashes --prefix $*- \
+	     $(if $(FUZZ_DICT),$(addprefix --dict ,$(FUZZ_DICT)/common.dict $(wildcard $(FUZZ_DICT)/$*.dict))) \
+	     $(if $(filter $*,$(FUZZ_VALUE_PROFILE)),--value-profile) --cores $(call libafl_cores,$*) \
+	     --time $(FUZZ_TIME) $(LIBAFL_ARGS) > $$log 2>&1; then \
+		tail -n 40 $$log; echo "FAIL $*: see $$log"; exit 1; \
+	fi; \
+	if [ $$(ls $(BUILD)/crashes | grep -c '^$*-') -gt $$before ]; then \
+		grep -m 1 -A 2 'diverges' $$log; echo "FAIL $*: see $$log and $(BUILD)/crashes"; exit 1; \
+	fi; \
+	echo "ok   $*: $$(grep '(GLOBAL)' $$log | tail -n 1 | sed 's/.*(GLOBAL) //')"
+
+# Proves LibAFL reports a divergence: fuzzes briefly with the selftest build
+# linked in and requires a reproducer. Needs cargo, so `make check` leaves it out.
+libafl-selftest: $(TARGETS:%=libafl-selftest-%)
+
+$(TARGETS:%=libafl-selftest-%): libafl-selftest-%: $(BUILD)/selftest/libafl_% | $(CORPUS)/%
+	@log=$(BUILD)/$@.log; dir=$(BUILD)/selftest/libafl-$*; rm -rf $$dir; \
+	$< --seeds $(CORPUS)/$* --queue $$dir/new --crashes $$dir/crashes --cores $(call libafl_cores,$*) \
+	   --time 10 > $$log 2>&1; \
+	if [ -z "$$(ls $$dir/crashes 2>/dev/null)" ] || ! grep -q 'diverges between $(REFERENCE) and selftest' $$log; then \
+		tail -n 20 $$log; echo "FAIL $@: divergence from selftest not reported"; exit 1; \
+	fi; \
+	echo "ok   $@: $$(grep -m 1 'diverges' $$log)"
+
 # Source coverage of the corpus replayed through one variant's flags, without
 # its sanitizers: what the fuzzer reaches. The report goes to $(BUILD)/coverage.
 COVERAGE_COMPILE = $(CLANG) $(COMMON_CFLAGS) $(filter-out $(SANITIZE_CFLAGS),$($(COVERAGE_VARIANT)_CFLAGS)) \
@@ -317,7 +383,7 @@ $(DOCKER_GOALS:%=docker-%): docker-%: cross-image | $(TARGETS:%=$(CORPUS)/%)
 		-v $(CURDIR):/src -w /src $(CROSS_IMAGE) \
 		make -j$$(nproc) BUILD=$(BUILD)/docker CORPUS=$(CORPUS) $*
 
-$(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage:
+$(BUILD) $(BUILD)/variants $(BUILD)/selftest $(BUILD)/coverage $(BUILD)/libafl:
 	mkdir -p $@
 
 clean:

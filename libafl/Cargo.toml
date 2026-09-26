@@ -1,0 +1,16 @@
+[workspace]
+members = ["inprocess"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.89"
+
+[workspace.dependencies]
+libafl = "=0.16.1"
+libafl_bolts = "=0.16.1"
+libafl_targets = "=0.16.1"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+debug = true

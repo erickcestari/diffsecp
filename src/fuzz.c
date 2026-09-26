@@ -43,6 +43,8 @@ unsigned char diffsecp_mutant_infected[DIFFSECP_MUTANT_COUNT]
     __attribute__((section("__libfuzzer_extra_counters")));
 unsigned char diffsecp_mutant_killed[DIFFSECP_MUTANT_COUNT]
     __attribute__((section("__libfuzzer_extra_counters")));
+/* The arrays' length, for fuzzers that observe them by name (libafl/). */
+const size_t diffsecp_mutant_count = DIFFSECP_MUTANT_COUNT;
 
 static const char *const mutant_names[] = DIFFSECP_MUTANT_NAMES;
 static unsigned char mutant_transcript[DIFFSECP_TRANSCRIPT_MAX];

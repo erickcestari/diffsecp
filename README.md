@@ -20,7 +20,7 @@ agree on inputs nobody wrote down.
 clang with libFuzzer, gcc, GNU make, binutils (`objcopy`) and python3, plus
 `llvm-profdata` and `llvm-cov` of the same LLVM for `make coverage`. Docker for
 cross-architecture runs, unless GCC 14 cross toolchains, clang 19 and qemu-user
-are installed.
+are installed. cargo with Rust 1.89 or newer for `make libafl-fuzz`.
 
 ## Usage
 
@@ -29,6 +29,7 @@ git submodule update --init
 make -j
 make check                                         # selftest, corpus replay, short fuzz run
 make -j fuzz FUZZ_TIME=3600                        # fuzz every target from the corpus for an hour
+make -j libafl-fuzz FUZZ_TIME=3600                 # the same with LibAFL
 make merge                                         # add the new inputs that raise coverage to the corpus
 make coverage                                      # what the corpus reaches, in build/coverage
 make mutation-score                                # which planted bugs the corpus exposes
@@ -190,6 +191,30 @@ masked mutant was triggered, so some input made its expression evaluate
 differently, but no transcript changed: the rest of the computation cancelled
 the difference, or nothing recorded it. A missed one was never triggered. `DIFFSECP_MUTANTS=off` fuzzes
 without the mutants, so an evaluation can score a run by what didn't steer it.
+
+## LibAFL
+
+`make libafl-fuzz` fuzzes the same harness with LibAFL. `libafl/` builds a Rust
+staticlib that `src/fuzz.c` and the variant objects link against into
+`build/libafl_<target>`. It takes the same seeds, dictionaries and
+`FUZZ_VALUE_PROFILE` targets, and writes to `build/new` and `build/crashes`, so
+`make merge` and replaying a reproducer with `build/fuzz_<target>` work
+unchanged. Its queue also holds the seeds it keeps, which `make merge` skips.
+LibAFL keeps fuzzing past a divergence, so the run fails when it leaves a
+reproducer. Each target fuzzes on the core at its position in `TARGETS`;
+`LIBAFL_CORES=0-3` gives every target those cores instead, and `LIBAFL_ARGS`
+passes flags such as `--timeout`. `make libafl-selftest` checks that it reports
+a divergence, as `make selftest` does.
+
+It keeps inputs that reach new edges in the guide builds, trigger or kill a
+mutant, or, for value profile targets, add a value profile feature. The value
+profile is libFuzzer's, computed by `libafl/inprocess/src/cmp.c`: LibAFL's own
+keeps only each compare's best Hamming similarity, and with it LibAFL killed
+fewer `scalar` mutants than libFuzzer. In four five-minute runs per target with
+mutant feedback off, LibAFL ran three to ten times as many executions as
+libFuzzer. Its corpora killed every `field` mutant in all four runs, including
+the one at x = p, which libFuzzer's corpora missed in all four. On `scalar`
+both engines killed the same mutants. Coverage was identical.
 
 ## CI
 
