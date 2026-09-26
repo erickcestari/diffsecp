@@ -60,10 +60,12 @@ chosen R, so verification recomputes infinity or an x at least the group order,
 which no signer can reach. It also builds DER encodings from fuzzed integers
 with the lengths computed, some long-form or short by a few bytes. That reaches
 the parser's length and padding rules, which mutated encodings rarely do: every
-length has to stay consistent first. `keys` can take a tweak from another
-register's secret key, so a key plus its negation sums to zero. `group` builds its points as k·G
-from fuzzed scalars, so it reaches the exceptional cases of point addition
-(doubling, P + (-P), infinity) that signatures can't.
+length has to stay consistent first. `schnorrsig` can turn its signature
+(r, s) into (r, 2ed - s), which verification computes as -R: the right x with
+an odd y, which only the signer's key produces. `keys` can take a tweak from
+another register's secret key, so a key plus its negation sums to zero. `group`
+builds its points as k·G from fuzzed scalars, so it reaches the exceptional
+cases of point addition (doubling, P + (-P), infinity) that signatures can't.
 
 ## Variants
 
@@ -180,10 +182,12 @@ wrong, such as p, n and (n-1)/2. `mutants/mutants.txt` lists bugs that show only
 at such values. One example is `>=` turned into `>` in the check that rejects
 field elements at least p. Others cover key tweaks that sum to zero or
 infinity, ElligatorSwift's special cases, the exceptional cases of point
-addition, strict DER and scalar reduction. `mutants/gen.py` puts all of them
-into one copy of libsecp, each behind a run-time switch. That copy is built
-twice, as `mutant` on the int128 code and `mutant_int64` on the int64 code, so
-both field and scalar implementations have mutants.
+addition, strict DER parsing and serialization, scalar addition, negation and
+reduction, the last step of modular inversion, and BIP340's check that R has an
+even y. `mutants/gen.py` puts all of them into one copy of libsecp, each behind
+a run-time switch. That copy is built twice, as `mutant` on the int128 code and
+`mutant_int64` on the int64 code, so both field and scalar implementations have
+mutants.
 
 After the comparison, `src/fuzz.c` runs each of those builds once with no
 mutant on, which flags the mutants whose values the input reaches. It then runs

@@ -6,8 +6,14 @@
 #
 # A record is "FILE FUNCTION" at the start of a line, then the original and the
 # mutated expression on indented lines. The original must appear exactly once
-# in FUNCTION's body. Mutate compares and constants, never a loop bound or a
-# check that keeps a copy in bounds, so no mutant can hang or fault.
+# in FUNCTION's body. An optional first indented line is an anchor, text that
+# appears once there: the original is then looked for only after it. Mutate
+# compares and constants, never a loop bound or a check that keeps a copy in
+# bounds, so no mutant can hang or fault.
+#
+# Keep the mutated expression equal to the original everywhere but at the rare
+# values: an input where they differ runs the mutant, so a mutant that differs
+# on most inputs costs a run on each of them until one kills it.
 
 # set_b32_limit rejects x >= p: the planted bug, which accepts x = p.
 src/field_5x52_impl.h secp256k1_fe_impl_set_b32_limit
@@ -27,6 +33,26 @@ src/field_5x52_impl.h secp256k1_fe_impl_normalize
 src/field_5x52_impl.h secp256k1_fe_impl_normalize_var
     (t0 >= 0xFFFFEFFFFFC2FULL)
     (t0 > 0xFFFFEFFFFFC2FULL)
+
+# The same comparison with p, limb by limb: a value below p whose top limb
+# matches p's is taken for at least p when the middle limbs are left out, and so
+# is one whose middle limbs match when the top limb is. Each drops its limb only
+# where the other matches, so it differs from the original only near p.
+src/field_5x52_impl.h secp256k1_fe_impl_normalize
+    (m == 0xFFFFFFFFFFFFFULL)
+    (m == 0xFFFFFFFFFFFFFULL || t4 == 0x0FFFFFFFFFFFFULL)
+
+src/field_5x52_impl.h secp256k1_fe_impl_normalize
+    (t4 == 0x0FFFFFFFFFFFFULL)
+    (t4 == 0x0FFFFFFFFFFFFULL || m == 0xFFFFFFFFFFFFFULL)
+
+src/field_5x52_impl.h secp256k1_fe_impl_normalize_var
+    (m == 0xFFFFFFFFFFFFFULL)
+    (m == 0xFFFFFFFFFFFFFULL || t4 == 0x0FFFFFFFFFFFFULL)
+
+src/field_5x52_impl.h secp256k1_fe_impl_normalize_var
+    (t4 == 0x0FFFFFFFFFFFFULL)
+    (t4 == 0x0FFFFFFFFFFFFULL || m == 0xFFFFFFFFFFFFFULL)
 
 # A raw value of p is zero; these forget it.
 src/field_5x52_impl.h secp256k1_fe_impl_normalizes_to_zero
@@ -51,15 +77,41 @@ src/scalar_4x64_impl.h secp256k1_scalar_check_overflow
     (a->d[2] > SECP256K1_N_2)
     (a->d[2] >= SECP256K1_N_2)
 
-# is_high is s > (n-1)/2, the low-S boundary: s = (n-1)/2, and values with its
-# top limb.
+# is_high is s > (n-1)/2, the low-S boundary: s = (n-1)/2, and values that
+# share its top limbs, so a lower limb decides.
 src/scalar_4x64_impl.h secp256k1_scalar_is_high
     (a->d[0] > SECP256K1_N_H_0)
     (a->d[0] >= SECP256K1_N_H_0)
 
 src/scalar_4x64_impl.h secp256k1_scalar_is_high
+    (a->d[1] > SECP256K1_N_H_1)
+    (a->d[1] >= SECP256K1_N_H_1)
+
+src/scalar_4x64_impl.h secp256k1_scalar_is_high
+    (a->d[1] < SECP256K1_N_H_1)
+    (a->d[1] <= SECP256K1_N_H_1)
+
+src/scalar_4x64_impl.h secp256k1_scalar_is_high
+    (a->d[2] < SECP256K1_N_H_2)
+    (a->d[2] <= SECP256K1_N_H_2)
+
+src/scalar_4x64_impl.h secp256k1_scalar_is_high
     (a->d[3] > SECP256K1_N_H_3)
     (a->d[3] >= SECP256K1_N_H_3)
+
+# A sum in [n, 2^256) left unreduced: only a carry out of 2^256 reduces it.
+src/scalar_4x64_impl.h secp256k1_scalar_add
+    secp256k1_u128_to_u64(&t) + secp256k1_scalar_check_overflow(r)
+    secp256k1_u128_to_u64(&t)
+
+# Negating zero gives n instead of zero.
+src/scalar_4x64_impl.h secp256k1_scalar_negate
+    (secp256k1_scalar_is_zero(a) == 0)
+    1
+
+src/scalar_4x64_impl.h secp256k1_scalar_cond_negate
+    (secp256k1_scalar_is_zero(r) != 0) - 1
+    -1
 
 # Results that must be rejected when a sum or product lands exactly on zero or
 # infinity: a tweak of minus the key, or of zero.
@@ -112,6 +164,7 @@ src/group_impl.h secp256k1_gej_impl_add_ge
 
 # Strict DER, which consensus depends on: a long-form length of 127, a two-byte
 # integer with a redundant zero byte, and a sequence shorter than its contents.
+# Serializing drops the zero byte an integer with a top byte of 0x80 needs.
 src/ecdsa_impl.h secp256k1_der_read_len
     *len < 128
     *len < 127
@@ -124,10 +177,30 @@ src/ecdsa_impl.h secp256k1_ecdsa_sig_parse
     rlen != (size_t)(sigend - sig)
     rlen > (size_t)(sigend - sig)
 
+src/ecdsa_impl.h secp256k1_ecdsa_sig_serialize
+    rp[1] < 0x80
+    rp[1] <= 0x80
+
+src/ecdsa_impl.h secp256k1_ecdsa_sig_serialize
+    sp[1] < 0x80
+    sp[1] <= 0x80
+
+# BIP340 verification accepts an R with the right x but an odd y.
+src/modules/schnorrsig/main_impl.h secp256k1_schnorrsig_verify
+    !secp256k1_fe_is_odd(&r.y)
+    1
+
 # The final reduction of a 512-bit scalar product misses a result in [n, 2^256).
 src/scalar_4x64_impl.h secp256k1_scalar_reduce_512
     c + secp256k1_scalar_check_overflow(r)
     c
+
+# The last step of a modular inverse leaves a negative result unreduced. It
+# depends on where the divsteps end, which inputs can't aim at.
+src/modinv64_impl.h secp256k1_modinv64_normalize_62
+    In a second step
+    r4 >> 63
+    0
 
 # The same boundaries in the int64 code. The 10x26 field compares the low limbs
 # with p's through a carry out of + 0x3D1, so + 0x3D0 misses x = p.
@@ -158,3 +231,44 @@ src/scalar_8x32_impl.h secp256k1_scalar_check_overflow
 src/scalar_8x32_impl.h secp256k1_scalar_is_high
     (a->d[0] > SECP256K1_N_H_0)
     (a->d[0] >= SECP256K1_N_H_0)
+
+src/field_10x26_impl.h secp256k1_fe_impl_normalize
+    (m == 0x3FFFFFFUL)
+    (m == 0x3FFFFFFUL || t9 == 0x03FFFFFUL)
+
+src/field_10x26_impl.h secp256k1_fe_impl_normalize
+    (t9 == 0x03FFFFFUL)
+    (t9 == 0x03FFFFFUL || m == 0x3FFFFFFUL)
+
+src/field_10x26_impl.h secp256k1_fe_impl_normalize_var
+    (m == 0x3FFFFFFUL)
+    (m == 0x3FFFFFFUL || t9 == 0x03FFFFFUL)
+
+src/field_10x26_impl.h secp256k1_fe_impl_normalize_var
+    (t9 == 0x03FFFFFUL)
+    (t9 == 0x03FFFFFUL || m == 0x3FFFFFFUL)
+
+src/scalar_8x32_impl.h secp256k1_scalar_is_high
+    (a->d[3] > SECP256K1_N_H_3)
+    (a->d[3] >= SECP256K1_N_H_3)
+
+src/scalar_8x32_impl.h secp256k1_scalar_is_high
+    (a->d[1] < SECP256K1_N_H_1)
+    (a->d[1] <= SECP256K1_N_H_1)
+
+src/scalar_8x32_impl.h secp256k1_scalar_add
+    t + secp256k1_scalar_check_overflow(r)
+    t
+
+src/scalar_8x32_impl.h secp256k1_scalar_negate
+    (secp256k1_scalar_is_zero(a) == 0)
+    1
+
+src/scalar_8x32_impl.h secp256k1_scalar_cond_negate
+    (secp256k1_scalar_is_zero(r) == 0)
+    1
+
+src/modinv32_impl.h secp256k1_modinv32_normalize_30
+    In a second step
+    r8 >> 31
+    0

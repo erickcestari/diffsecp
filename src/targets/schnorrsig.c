@@ -4,7 +4,37 @@
  *
  * Input: mode, msg[32], then seckey[32] + aux[32] or raw xonly_pk[32] and sig64,
  * then mutations, then tweak[32] and a mutation of the tweaked key, then a
- * variable-length message, nonce[32] and a signature mutation. */
+ * variable-length message, nonce[32] and a signature mutation. Mode bit 3 turns
+ * the signature into one whose R has an odd y. */
+
+/* Turns a valid signature (r, s) into (r, 2ed - s), which verification computes
+ * as -R: the right x with an odd y, which BIP340 rejects. Only the signer's key
+ * produces one, so fuzzed bytes never do. */
+static int schnorrsig_odd_r(unsigned char *sig64, const unsigned char *msg32, const secp256k1_keypair *keypair,
+                            int parity, const unsigned char *pk32) {
+    static const unsigned char tag[] = "BIP0340/challenge";
+    unsigned char buf[96], e[32], d[32], ed[32], neg_s[32];
+
+    memcpy(buf, sig64, 32);
+    memcpy(buf + 32, pk32, 32);
+    memcpy(buf + 64, msg32, 32);
+    memcpy(neg_s, sig64 + 32, 32);
+    /* BIP340 signs with the key whose public key has an even y. */
+    if (!secp256k1_tagged_sha256(variant_ctx, e, tag, sizeof(tag) - 1, buf, sizeof(buf)) ||
+        !secp256k1_keypair_sec(variant_ctx, d, keypair) ||
+        (parity && !secp256k1_ec_seckey_negate(variant_ctx, d)) ||
+        !secp256k1_ec_seckey_tweak_mul(variant_ctx, d, e)) {
+        return 0;
+    }
+    memcpy(ed, d, sizeof(d));
+    if (!secp256k1_ec_seckey_tweak_add(variant_ctx, d, ed) ||
+        !secp256k1_ec_seckey_negate(variant_ctx, neg_s) ||
+        !secp256k1_ec_seckey_tweak_add(variant_ctx, d, neg_s)) {
+        return 0;
+    }
+    memcpy(sig64 + 32, d, sizeof(d));
+    return 1;
+}
 
 static void schnorrsig_record_tweak(struct transcript *t, struct reader *r,
                                     const secp256k1_xonly_pubkey *internal) {
@@ -120,6 +150,10 @@ static size_t target_schnorrsig(const unsigned char *in, size_t len, unsigned ch
             ok = secp256k1_schnorrsig_sign32(variant_ctx, sig64, msg, &keypair, (mode & 2) ? aux : NULL);
             transcript_int(&t, ok);
             transcript_put(&t, sig64, sizeof(sig64));
+            if (mode & 8) {
+                transcript_int(&t, schnorrsig_odd_r(sig64, msg, &keypair, parity, pk32));
+                transcript_put(&t, sig64, sizeof(sig64));
+            }
         }
     } else {
         reader_take(&r, pk32, sizeof(pk32));
