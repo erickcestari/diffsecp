@@ -49,6 +49,20 @@ unsigned char diffsecp_mutant_killed[DIFFSECP_MUTANT_COUNT]
 /* The arrays' length, for fuzzers that observe them by name (libafl/). */
 const size_t diffsecp_mutant_count = DIFFSECP_MUTANT_COUNT;
 
+/* Where the reference build read each operand of at least 32 bytes in the last
+ * input, which libafl/ mutates as 256-bit numbers. A read may run past the end
+ * of the input, which the mutator then extends. guide_CFLAGS routes every read
+ * here with -DDIFFSECP_NOTE_READS. */
+#define DIFFSECP_READS_MAX 256
+struct diffsecp_read {
+    uint32_t offset;
+    uint32_t len;
+};
+struct diffsecp_read diffsecp_reads[DIFFSECP_READS_MAX];
+size_t diffsecp_nreads;
+/* The input while the reference runs, else NULL: the other builds read the same. */
+static const unsigned char *reads_base;
+
 static const char *const mutant_names[] = DIFFSECP_MUTANT_NAMES;
 static unsigned char mutant_transcript[DIFFSECP_TRANSCRIPT_MAX];
 static unsigned char mutant_ever_infected[DIFFSECP_MUTANT_COUNT];
@@ -59,6 +73,15 @@ static int mutants_off;
 
 int LLVMFuzzerInitialize(int *argc, char ***argv);
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
+void diffsecp_note_read(const unsigned char *p, size_t n);
+
+void diffsecp_note_read(const unsigned char *p, size_t n) {
+    if (reads_base != NULL && n >= 32 && diffsecp_nreads < DIFFSECP_READS_MAX) {
+        diffsecp_reads[diffsecp_nreads].offset = (uint32_t)(p - reads_base);
+        diffsecp_reads[diffsecp_nreads].len = (uint32_t)n;
+        diffsecp_nreads++;
+    }
+}
 
 static void dump(const char *name, const unsigned char *t, size_t len, size_t at) {
     size_t lo = at > 16 ? at - 16 : 0;
@@ -169,9 +192,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         data = empty;
     }
 
+    diffsecp_nreads = 0;
     for (i = 0; i < NVARIANTS; i++) {
+        reads_base = i == 0 ? data : NULL;
         lengths[i] = variants[i]->DIFFSECP_TARGET(data, size, transcripts[i], DIFFSECP_TRANSCRIPT_MAX);
     }
+    reads_base = NULL;
     for (i = 1; i < NVARIANTS; i++) {
         if (!matches_reference(transcripts[i], lengths[i])) {
             report_divergence(variants[i]->name, transcripts[i], lengths[i]);

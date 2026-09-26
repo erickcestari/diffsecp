@@ -215,6 +215,19 @@ mutant feedback off, its corpora killed every `field` mutant in all four runs,
 including the one at x = p, which libFuzzer's corpora missed in all four. On
 `scalar` both engines killed the same mutants. Coverage was identical.
 
+It also mutates each operand of 32 bytes or more as a 256-bit number
+(`libafl/inprocess/src/operands.rs`), found where the guide build reports reading
+it (`-DDIFFSECP_NOTE_READS`). It adds or subtracts a few units with carries across
+the whole operand, sets it to a 32-byte dictionary token plus or minus two, or
+fills one limb of the 5x52, 10x26, 4x64 or 8x32 layout with ones or zeros. Havoc
+does none of this, since its arithmetic stops at 4-byte words. Starting from an
+empty corpus, in four five-minute runs per target, it kept an input with x = p
+in every `field` run and one with s = (n-1)/2 in every `scalar` run. Without it,
+LibAFL kept them in three and none of the four, and libFuzzer in none and two. A
+stage that first set every operand to every token gained nothing over the
+mutator, so there is no such stage. `LIBAFL_ARGS='--u256 false'` turns the
+mutator off.
+
 ## CI
 
 `.github/workflows/ci.yml` runs `make check` and `make docker-cross` on pushes

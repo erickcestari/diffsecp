@@ -39,6 +39,9 @@ use libafl_targets::{
     CmpLogObserver, extra_counters, libfuzzer_initialize, libfuzzer_test_one_input,
 };
 
+mod operands;
+use operands::{OperandsStage, U256Mutator};
+
 unsafe extern "C" {
     static diffsecp_input_max: usize;
     // Filled on every run by src/cmp.c.
@@ -80,6 +83,9 @@ struct Opt {
     /// Seconds an input may run before it counts as a hang.
     #[arg(long, default_value_t = 60)]
     timeout: u64,
+    /// Mutate 256-bit operands with carries, boundary values and limb edges.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    u256: bool,
 }
 
 /// A port no other broker listens on. Launcher joins whichever broker already
@@ -264,7 +270,17 @@ fn client(
     let power: StdPowerMutationalStage<_, _, BytesInput, _, _, _> = StdPowerMutationalStage::new(
         HavocScheduledMutator::new(havoc_mutations().merge(tokens_mutations())),
     );
-    let mut stages = tuple_list!(calibration, ShadowTracingStage::new(), i2s, power);
+    let u256 = StdMutationalStage::new(HavocScheduledMutator::new(tuple_list!(U256Mutator::new(
+        opt.u256
+    ))));
+    let mut stages = tuple_list!(
+        calibration,
+        ShadowTracingStage::new(),
+        i2s,
+        OperandsStage::new(opt.u256),
+        u256,
+        power
+    );
 
     if state.must_load_initial_inputs() {
         state.load_initial_inputs(&mut fuzzer, &mut executor, mgr, &opt.seeds)?;

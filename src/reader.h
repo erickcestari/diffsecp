@@ -10,8 +10,17 @@ struct reader {
     size_t left;
 };
 
+#ifdef DIFFSECP_NOTE_READS
+/* Defined by the fuzz driver, which records where each operand lies in the input. */
+void diffsecp_note_read(const unsigned char *p, size_t n);
+#endif
+
 static void reader_take(struct reader *r, unsigned char *out, size_t n) {
     size_t k = n < r->left ? n : r->left;
+
+#ifdef DIFFSECP_NOTE_READS
+    diffsecp_note_read(r->p, n);
+#endif
 
     /* Guarded because advancing a null pointer by zero is undefined in C. */
     if (k > 0) {

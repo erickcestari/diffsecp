@@ -27,6 +27,17 @@
 
 extern const struct diffsecp_variant VARIANT;
 
+#ifdef DIFFSECP_NOTE_READS
+/* The coverage build uses guide's flags, whose reads report here; replay has no
+ * use for them. */
+void diffsecp_note_read(const unsigned char *p, size_t n);
+
+void diffsecp_note_read(const unsigned char *p, size_t n) {
+    (void)p;
+    (void)n;
+}
+#endif
+
 /* One byte over the limit, to tell oversized inputs from ones that fit exactly. */
 static unsigned char input[DIFFSECP_INPUT_MAX + 1];
 static unsigned char transcript[DIFFSECP_TRANSCRIPT_MAX];
