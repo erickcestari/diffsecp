@@ -235,7 +235,11 @@ fn client(
         return Err(Error::illegal_state("LLVMFuzzerInitialize failed"));
     }
     let mut harness = |input: &BytesInput| {
-        unsafe { libfuzzer_test_one_input(&input.target_bytes().to_slice()) };
+        // Past the deadline, the rest of the current stage runs nothing: one stage
+        // of a slow target takes minutes.
+        if deadline.is_none_or(|d| SystemTime::now() < d) {
+            unsafe { libfuzzer_test_one_input(&input.target_bytes().to_slice()) };
+        }
         ExitKind::Ok
     };
     let executor = InProcessExecutor::builder()
