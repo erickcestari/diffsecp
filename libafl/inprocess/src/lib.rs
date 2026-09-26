@@ -26,7 +26,7 @@ use libafl::{
         IndexesLenTimeMinimizerScheduler, StdWeightedScheduler, powersched::PowerSchedule,
     },
     stages::{CalibrationStage, ShadowTracingStage, StdMutationalStage, StdPowerMutationalStage},
-    state::{HasCorpus, StdState},
+    state::{HasCorpus, HasMaxSize, StdState},
 };
 use libafl_bolts::{
     ToSlice,
@@ -40,6 +40,7 @@ use libafl_targets::{
 };
 
 unsafe extern "C" {
+    static diffsecp_input_max: usize;
     // Filled on every run by src/cmp.c.
     static mut diffsecp_value_profile: [u8; 0];
     static diffsecp_value_profile_size: usize;
@@ -213,6 +214,7 @@ fn client(
             &mut objective,
         )?,
     };
+    state.set_max_size(unsafe { diffsecp_input_max });
     if !state.has_metadata::<Tokens>() {
         state.add_metadata(Tokens::new().add_from_files(&opt.dict)?);
     }

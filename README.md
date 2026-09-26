@@ -211,10 +211,9 @@ mutant, or, for value profile targets, add a value profile feature. The value
 profile is libFuzzer's, computed by `libafl/inprocess/src/cmp.c`: LibAFL's own
 keeps only each compare's best Hamming similarity, and with it LibAFL killed
 fewer `scalar` mutants than libFuzzer. In four five-minute runs per target with
-mutant feedback off, LibAFL ran three to ten times as many executions as
-libFuzzer. Its corpora killed every `field` mutant in all four runs, including
-the one at x = p, which libFuzzer's corpora missed in all four. On `scalar`
-both engines killed the same mutants. Coverage was identical.
+mutant feedback off, its corpora killed every `field` mutant in all four runs,
+including the one at x = p, which libFuzzer's corpora missed in all four. On
+`scalar` both engines killed the same mutants. Coverage was identical.
 
 ## CI
 

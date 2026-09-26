@@ -31,6 +31,9 @@ static const struct diffsecp_variant *const variants[] = {DIFFSECP_VARIANTS(ENTR
 static unsigned char transcripts[NVARIANTS][DIFFSECP_TRANSCRIPT_MAX];
 static size_t lengths[NVARIANTS];
 
+/* For fuzzers that link this driver (libafl/), which otherwise grow inputs past it. */
+const size_t diffsecp_input_max = DIFFSECP_INPUT_MAX;
+
 /* The mutant schemata runs once with no mutant on, flagging in
  * diffsecp_mutant_infected each mutant the input's values trigger, then once per
  * flagged mutant not yet killed, which it kills if the transcript differs or an
