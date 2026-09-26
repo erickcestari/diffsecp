@@ -182,10 +182,12 @@ wrong, such as p, n and (n-1)/2. `mutants/mutants.txt` lists bugs that show only
 at such values. One example is `>=` turned into `>` in the check that rejects
 field elements at least p. Others cover key tweaks that sum to zero or
 infinity, ElligatorSwift's special cases, the exceptional cases of point
-addition, strict DER and scalar reduction. `mutants/gen.py` puts all of them
-into one copy of libsecp, each behind a run-time switch. That copy is built
-twice, as `mutant` on the int128 code and `mutant_int64` on the int64 code, so
-both field and scalar implementations have mutants.
+addition, strict DER parsing and serialization, scalar addition, negation and
+reduction, the last step of modular inversion, and BIP340's check that R has an
+even y. `mutants/gen.py` puts all of them into one copy of libsecp, each behind
+a run-time switch. That copy is built twice, as `mutant` on the int128 code and
+`mutant_int64` on the int64 code, so both field and scalar implementations have
+mutants.
 
 After the comparison, `src/fuzz.c` runs each of those builds once with no
 mutant on, which flags the mutants whose values the input reaches. It then runs

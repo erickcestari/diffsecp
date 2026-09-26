@@ -59,6 +59,11 @@ ECMULT_CONST = group("ecmult_const: q = -K makes the scalar it splits zero, 2*bo
                      [("ecmult_const_bound%d" % i, b32((2 * s - K) % N)) for i, s in enumerate(SPLIT_BOUNDS)])
 SPLIT = group("split_lambda: scalars whose halves reach the largest magnitude.",
               [("split_bound%d" % i, b32(s)) for i, s in enumerate(SPLIT_BOUNDS)])
+# fe_normalize compares a value with p limb by limb. Each of these is p with
+# one limb one lower, in both the 5x52 and the 10x26 layout: a limb in the
+# middle, and the top one.
+NEAR_P = group("Field: values below p that match all its limbs but one, which normalize's compare with p decides.",
+               [("p_minus_2_52", b32(P - 2**52)), ("p_minus_2_234", b32(P - 2**234))])
 INV_P = group("Field inversion: inputs mod p needing the most safegcd steps.",
               [("inv_hard_p%d" % i, b32(v)) for i, v in enumerate(INV_HARD_P)])
 INV_N = group("Scalar inversion: inputs mod n needing the most safegcd steps.",
@@ -101,7 +106,7 @@ DICTS = {
         group("Endomorphism constants: beta*x and lambda*k give the same point.",
               [("beta", b32(BETA)), ("lambda", b32(LAMBDA))]),
     ],
-    "field": [INV_P],
+    "field": [NEAR_P, INV_P],
     "scalar": [INV_N, SPLIT],
     "ecdsa": [DER, INV_N],
     "recovery": [INV_N],
