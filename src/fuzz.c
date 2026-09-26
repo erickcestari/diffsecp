@@ -150,6 +150,7 @@ static void run_mutants(const uint8_t *data, size_t size) {
             continue;
         }
         diffsecp_mutant = (int)k;
+        diffsecp_mutant_illegal = 0;
         len = diffsecp_variant_mutant.DIFFSECP_TARGET(data, size, mutant_transcript, sizeof(mutant_transcript));
         diffsecp_mutant = DIFFSECP_MUTANT_DETECT;
         if (diffsecp_mutant_illegal || !matches_reference(mutant_transcript, len)) {
