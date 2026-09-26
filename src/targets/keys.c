@@ -7,7 +7,8 @@
  * an op is emptied and skipped by the ops that read it.
  *
  * Input: repeated [op, selector, operands...]. The selector picks the
- * destination and two source registers. */
+ * destination and two source registers; its bit 6 makes a tweak add take the
+ * second source's secret key as the tweak (keys_take_tweak). */
 
 #define KEYS_REGS 4
 #define KEYS_MAX_OPS 64
@@ -55,6 +56,17 @@ static void keys_record_reg(struct transcript *t, const struct keys_reg *reg) {
     transcript_int(t, reg->pk_ok);
     if (reg->pk_ok) {
         keys_record_pubkey(t, &reg->pk);
+    }
+}
+
+/* The tweak: 32 input bytes, or b's secret key with bit 6 of the selector. With
+ * b holding a's negation, the sum is zero or infinity, which the tweak functions
+ * must reject and fuzzed bytes, blind to a's key, never produce. */
+static void keys_take_tweak(struct reader *r, unsigned int sel, const struct keys_reg *b, unsigned char *tweak) {
+    if (sel & 64) {
+        memcpy(tweak, b->sk, 32);
+    } else {
+        reader_take(r, tweak, 32);
     }
 }
 
@@ -193,7 +205,7 @@ static size_t target_keys(const unsigned char *in, size_t len, unsigned char *ou
             keys_seckey_result(&t, res.sk, secp256k1_ec_seckey_negate(variant_ctx, res.sk));
             break;
         case KEYS_SECKEY_TWEAK_ADD:
-            reader_take(&r, tweak, sizeof(tweak));
+            keys_take_tweak(&r, sel, b, tweak);
             memcpy(res.sk, a->sk, sizeof(res.sk));
             keys_seckey_result(&t, res.sk, secp256k1_ec_seckey_tweak_add(variant_ctx, res.sk, tweak));
             break;
@@ -218,7 +230,7 @@ static size_t target_keys(const unsigned char *in, size_t len, unsigned char *ou
             }
             break;
         case KEYS_PUBKEY_TWEAK_ADD:
-            reader_take(&r, tweak, sizeof(tweak));
+            keys_take_tweak(&r, sel, b, tweak);
             if (a->pk_ok) {
                 res.pk = a->pk;
                 res.pk_ok = secp256k1_ec_pubkey_tweak_add(variant_ctx, &res.pk, tweak);

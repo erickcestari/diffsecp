@@ -57,9 +57,13 @@ The signature targets sign first and then mutate the signature, message or key,
 reaching verify paths random bytes almost never hit. `ecdsa` also mutates the
 signature's DER encoding, reaching the strict parser, and builds the key from a
 chosen R, so verification recomputes infinity or an x at least the group order,
-which no signer can reach. `group` builds its points as k·G from fuzzed
-scalars, so it reaches the exceptional cases of point addition (doubling,
-P + (-P), infinity) that signatures can't.
+which no signer can reach. It also builds DER encodings from fuzzed integers
+with the lengths computed, some long-form or short by a few bytes. That reaches
+the parser's length and padding rules, which mutated encodings rarely do: every
+length has to stay consistent first. `keys` can take a tweak from another
+register's secret key, so a key plus its negation sums to zero. `group` builds its points as k·G
+from fuzzed scalars, so it reaches the exceptional cases of point addition
+(doubling, P + (-P), infinity) that signatures can't.
 
 ## Variants
 
