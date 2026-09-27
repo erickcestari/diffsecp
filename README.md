@@ -261,13 +261,15 @@ versions.
 
 <!-- coverage:begin -->
 
-libsecp `f14d2992585b`: 86.85% of lines, 60.23% of branches, 89.07% of functions.
+libsecp `f14d2992585b`: 86.91% of lines, 60.48% of branches, 89.07% of functions.
+
+Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 
 | File | Lines | Branches | Functions |
 |------|------:|---------:|----------:|
 | `contrib/lax_der_parsing.c` | 100.00% | 100.00% | 100.00% |
 | `src/assumptions.h` | 0.00% | - | 0.00% |
-| `src/ecdsa_impl.h` | 97.40% | 95.19% | 100.00% |
+| `src/ecdsa_impl.h` | 97.40% | 94.23% | 100.00% |
 | `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
 | `src/ecmult_const_impl.h` | 100.00% | 74.14% | 100.00% |
 | `src/ecmult_gen_impl.h` | 94.92% | 78.12% | 85.71% |
@@ -281,14 +283,14 @@ libsecp `f14d2992585b`: 86.85% of lines, 60.23% of branches, 89.07% of functions
 | `src/int128_native_impl.h` | 91.18% | 60.71% | 89.47% |
 | `src/modinv64_impl.h` | 99.18% | 62.24% | 100.00% |
 | `src/modules/ecdh/main_impl.h` | 93.62% | 58.33% | 66.67% |
-| `src/modules/ellswift/main_impl.h` | 95.29% | 61.18% | 88.89% |
+| `src/modules/ellswift/main_impl.h` | 96.63% | 63.16% | 88.89% |
 | `src/modules/extrakeys/main_impl.h` | 91.87% | 57.94% | 100.00% |
 | `src/modules/musig/keyagg_impl.h` | 92.39% | 62.16% | 100.00% |
 | `src/modules/musig/session_impl.h` | 92.09% | 63.67% | 100.00% |
 | `src/modules/recovery/main_impl.h` | 96.00% | 60.61% | 100.00% |
 | `src/modules/schnorrsig/main_impl.h` | 93.64% | 64.06% | 90.00% |
 | `src/modules/silentpayments/main_impl.h` | 87.60% | 65.95% | 100.00% |
-| `src/scalar_4x64_impl.h` | 100.00% | 52.74% | 100.00% |
+| `src/scalar_4x64_impl.h` | 100.00% | 54.79% | 100.00% |
 | `src/scalar_impl.h` | 100.00% | 59.09% | 100.00% |
 | `src/scratch_impl.h` | 0.00% | 0.00% | 0.00% |
 | `src/secp256k1.c` | 80.94% | 50.00% | 78.00% |
