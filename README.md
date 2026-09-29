@@ -261,7 +261,7 @@ versions.
 
 <!-- coverage:begin -->
 
-libsecp `f14d2992585b`: 86.91% of lines, 60.48% of branches, 89.07% of functions.
+libsecp `f14d2992585b`: 86.91% of lines, 60.54% of branches, 89.07% of functions.
 
 Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 
@@ -269,11 +269,11 @@ Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 |------|------:|---------:|----------:|
 | `contrib/lax_der_parsing.c` | 100.00% | 100.00% | 100.00% |
 | `src/assumptions.h` | 0.00% | - | 0.00% |
-| `src/ecdsa_impl.h` | 97.40% | 94.23% | 100.00% |
+| `src/ecdsa_impl.h` | 97.40% | 95.19% | 100.00% |
 | `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
 | `src/ecmult_const_impl.h` | 100.00% | 74.14% | 100.00% |
 | `src/ecmult_gen_impl.h` | 94.92% | 78.12% | 85.71% |
-| `src/ecmult_impl.h` | 41.10% | 32.69% | 44.00% |
+| `src/ecmult_impl.h` | 41.10% | 33.01% | 44.00% |
 | `src/field_5x52_impl.h` | 97.85% | 66.67% | 96.67% |
 | `src/field_5x52_int128_impl.h` | 100.00% | 50.00% | 100.00% |
 | `src/field_impl.h` | 96.61% | 66.07% | 96.77% |
