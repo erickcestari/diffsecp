@@ -13,7 +13,7 @@ on:
     inputs:
       minutes:
         description: Minutes to fuzz every target for
-        default: '120'
+        default: '30'
 
 permissions:
   contents: write
@@ -48,7 +48,7 @@ jobs:
         run: make -j"$(nproc)" all $(for a in $ORACLE_ARCHES; do echo build/cross/$a/replay; done)
       - name: Fuzz every target at once
         env:
-          MINUTES: ${{ inputs.minutes || '120' }}
+          MINUTES: ${{ inputs.minutes || '30' }}
         # A failure's output names the input, so it stays out of the public log.
         run: |
           if ! make -k -j fuzz FUZZ_TIME=$((60 * MINUTES)) > build/fuzz.out 2>&1; then

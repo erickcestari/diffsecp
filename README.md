@@ -236,7 +236,7 @@ master daily, runs CI on the bump and fast-forwards master to it only if CI
 passes. A failed run leaves the bump on the `bump-secp256k1` branch: upstream
 broke a target or changed behavior against the baseline.
 
-`.github/workflows/fuzz.yml` fuzzes every target for two hours daily, with the
+`.github/workflows/fuzz.yml` fuzzes every target for 30 minutes daily, with the
 oracle on every Linux architecture, adds the inputs that raise coverage once CI
 passes on them, and uploads a coverage report. A divergence fails the run without printing it, skips that day's corpus
 update, and uploads its reproducer and logs encrypted to the maintainer's PGP
