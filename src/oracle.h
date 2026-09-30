@@ -8,6 +8,7 @@
  * digest of the transcript every x86 build agreed on. `make cross` compares the
  * same digests, but only for the committed corpus. Linux only, as fuzzing is. */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <spawn.h>
@@ -16,16 +17,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 extern char **environ;
 
 #define ORACLE_MAX 16
 
+/* Raw pipes, not stdio: libFuzzer's SIGALRM handler, which checks for timeouts
+ * every -timeout/2 + 1 seconds, lacks SA_RESTART, so its alarm fails any read
+ * or write blocked on an oracle with EINTR, which stdio can't retry. */
 struct oracle {
     const char *name;
-    FILE *in;
-    FILE *out;
+    pid_t pid;
+    int in;
+    int out;
 };
 
 static struct oracle oracles[ORACLE_MAX];
@@ -89,8 +95,9 @@ static int oracle_start(const char *spec, const char *dir, double rate) {
         close(to[0]);
         close(from[1]);
         oracles[noracles].name = entry;
-        oracles[noracles].in = fdopen(to[1], "w");
-        oracles[noracles].out = fdopen(from[0], "r");
+        oracles[noracles].pid = pid;
+        oracles[noracles].in = to[1];
+        oracles[noracles].out = from[0];
         noracles++;
     }
     return 0;
@@ -104,12 +111,72 @@ static int oracle_due(void) {
     return oracle_threshold != 0 && oracle_rng <= oracle_threshold;
 }
 
+static int oracle_write(int fd, const char *buf, size_t len) {
+    while (len > 0) {
+        ssize_t n = write(fd, buf, len);
+
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            return -1;
+        }
+        buf += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
+
+/* Reads one line without its newline, truncated to fit. Byte by byte, so
+ * nothing past the answer is left buffered. Returns -1 at end of file. */
+static int oracle_read_line(int fd, char *line, size_t cap) {
+    size_t len = 0;
+    char c;
+
+    for (;;) {
+        ssize_t n = read(fd, &c, 1);
+
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            return -1;
+        }
+        if (c == '\n') {
+            break;
+        }
+        if (len + 1 < cap) {
+            line[len++] = c;
+        }
+    }
+    line[len] = '\0';
+    return 0;
+}
+
+/* Puts how the oracle's process ended in line, reaping it. */
+static void oracle_no_answer(const struct oracle *o, char *line, size_t cap) {
+    int status;
+    pid_t pid;
+
+    do {
+        pid = waitpid(o->pid, &status, 0);
+    } while (pid < 0 && errno == EINTR);
+    if (pid < 0) {
+        snprintf(line, cap, "no answer: cannot wait for the process: %s", strerror(errno));
+    } else if (WIFSIGNALED(status)) {
+        snprintf(line, cap, "no answer: the process was killed by signal %d (%s)", WTERMSIG(status),
+                 strsignal(WTERMSIG(status)));
+    } else {
+        snprintf(line, cap, "no answer: the process exited with status %d", WEXITSTATUS(status));
+    }
+}
+
 /* Runs input on every oracle. Returns the name of the first whose answer isn't
- * the reference digest, with that answer in answer; one whose process exited,
- * as when its build crashes, answers nothing. Returns NULL if all agree. */
+ * the reference digest, with that answer in answer; one whose process ended,
+ * as when its build crashes, answers how it ended. Returns NULL if all agree. */
 static const char *oracle_check(const unsigned char *input, size_t len, uint64_t reference, char *answer,
                                 size_t cap) {
-    char expected[17];
+    char expected[17], request[sizeof(oracle_input) + 1];
     const char *diverged = NULL;
     int sent[ORACLE_MAX];
     size_t i;
@@ -120,18 +187,18 @@ static const char *oracle_check(const unsigned char *input, size_t len, uint64_t
         fprintf(stderr, "diffsecp: cannot write the oracle's input %s\n", oracle_input);
         exit(1);
     }
+    snprintf(request, sizeof(request), "%s\n", oracle_input);
     for (i = 0; i < noracles; i++) {
-        sent[i] = fprintf(oracles[i].in, "%s\n", oracle_input) > 0 && fflush(oracles[i].in) == 0;
+        sent[i] = oracle_write(oracles[i].in, request, strlen(request)) == 0;
     }
     snprintf(expected, sizeof(expected), "%016llx", (unsigned long long)reference);
     for (i = 0; i < noracles; i++) {
         char line[1024], *digest;
 
         /* Read every answer, even after a divergence, to keep the lines paired. */
-        if (!sent[i] || fgets(line, sizeof(line), oracles[i].out) == NULL) {
-            snprintf(line, sizeof(line), "no answer: the process exited");
+        if (!sent[i] || oracle_read_line(oracles[i].out, line, sizeof(line)) != 0) {
+            oracle_no_answer(&oracles[i], line, sizeof(line));
         }
-        line[strcspn(line, "\n")] = '\0';
         digest = strchr(line, ' ');
         if (diverged == NULL && (digest == NULL || strncmp(digest + 1, expected, 16) != 0 || digest[17] != ' ')) {
             diverged = oracles[i].name;

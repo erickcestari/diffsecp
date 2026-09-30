@@ -133,11 +133,11 @@ $(BUILD)/selftest/variants.h: FORCE | $(BUILD)/selftest
 $(BUILD)/fuzz.flags: FORCE | $(BUILD)
 	@echo '$(FUZZ_COMPILE)' | cmp -s - $@ || echo '$(FUZZ_COMPILE)' > $@
 
-$(BUILD)/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/variants.h $(MUTANTS_H) $(BUILD)/fuzz.flags \
+$(BUILD)/fuzz_%: src/fuzz.c src/diffsecp.h src/digest.h src/oracle.h $(BUILD)/variants.h $(MUTANTS_H) $(BUILD)/fuzz.flags \
                  $(VARIANT_OBJS) $(MUTANT_OBJS)
 	$(FUZZ_COMPILE) -I$(BUILD) -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(VARIANT_OBJS) $(MUTANT_OBJS) -o $@
 
-$(BUILD)/selftest/fuzz_%: src/fuzz.c src/diffsecp.h $(BUILD)/selftest/variants.h $(MUTANTS_H) $(BUILD)/fuzz.flags \
+$(BUILD)/selftest/fuzz_%: src/fuzz.c src/diffsecp.h src/digest.h src/oracle.h $(BUILD)/selftest/variants.h $(MUTANTS_H) $(BUILD)/fuzz.flags \
                           $(SELFTEST_OBJS) $(MUTANT_OBJS)
 	$(FUZZ_COMPILE) -I$(BUILD)/selftest -I$(BUILD)/mutants -DDIFFSECP_TARGET=$* $< $(SELFTEST_OBJS) $(MUTANT_OBJS) -o $@
 
