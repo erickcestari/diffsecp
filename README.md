@@ -261,7 +261,7 @@ versions.
 
 <!-- coverage:begin -->
 
-libsecp `f14d2992585b`: 86.91% of lines, 60.54% of branches, 89.07% of functions.
+libsecp `2b4a7b906f1d`: 86.91% of lines, 60.54% of branches, 89.07% of functions.
 
 Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 
