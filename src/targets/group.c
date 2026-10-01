@@ -282,7 +282,7 @@ static size_t target_group(const unsigned char *in, size_t len, unsigned char *o
             break;
         case GROUP_ECMULT_CONST:
             group_take_scalar(&r, &s1);
-            secp256k1_ecmult_const(&res, &ga, &s1);
+            secp256k1_ecmult_const_gej(&res, &ga, &s1);
             break;
         case GROUP_ECMULT_CONST_XONLY:
             group_ecmult_const_xonly(&t, &r, &ga);
