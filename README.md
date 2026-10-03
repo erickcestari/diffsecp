@@ -261,7 +261,7 @@ versions.
 
 <!-- coverage:begin -->
 
-libsecp `2b4a7b906f1d`: 86.91% of lines, 60.54% of branches, 89.07% of functions.
+libsecp `2365dc6455ed`: 86.91% of lines, 60.54% of branches, 89.09% of functions.
 
 Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 
@@ -282,14 +282,14 @@ Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 | `src/hsort_impl.h` | 94.55% | 76.92% | 100.00% |
 | `src/int128_native_impl.h` | 91.18% | 60.71% | 89.47% |
 | `src/modinv64_impl.h` | 99.18% | 62.24% | 100.00% |
-| `src/modules/ecdh/main_impl.h` | 93.62% | 58.33% | 66.67% |
+| `src/modules/ecdh/main_impl.h` | 93.18% | 58.33% | 66.67% |
 | `src/modules/ellswift/main_impl.h` | 96.63% | 63.16% | 88.89% |
 | `src/modules/extrakeys/main_impl.h` | 91.87% | 57.94% | 100.00% |
 | `src/modules/musig/keyagg_impl.h` | 92.39% | 62.16% | 100.00% |
 | `src/modules/musig/session_impl.h` | 92.09% | 63.67% | 100.00% |
 | `src/modules/recovery/main_impl.h` | 96.00% | 60.61% | 100.00% |
 | `src/modules/schnorrsig/main_impl.h` | 93.64% | 64.06% | 90.00% |
-| `src/modules/silentpayments/main_impl.h` | 87.60% | 65.95% | 100.00% |
+| `src/modules/silentpayments/main_impl.h` | 87.53% | 65.95% | 100.00% |
 | `src/scalar_4x64_impl.h` | 100.00% | 54.79% | 100.00% |
 | `src/scalar_impl.h` | 100.00% | 59.09% | 100.00% |
 | `src/scratch_impl.h` | 0.00% | 0.00% | 0.00% |
