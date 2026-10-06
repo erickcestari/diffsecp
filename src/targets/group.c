@@ -36,16 +36,26 @@ enum group_op {
     GROUP_OP_COUNT
 };
 
+/* Point j of a multi-point multiplication is register j % 4, with scalar
+ * sc[j % 4] + (j / 4) * step. The callback fails at point fail_at. */
 struct group_multi {
     secp256k1_scalar sc[GROUP_REGS];
     secp256k1_ge pt[GROUP_REGS];
+    secp256k1_scalar step;
+    size_t fail_at;
 };
 
 static int group_multi_callback(secp256k1_scalar *sc, secp256k1_ge *pt, size_t idx, void *data) {
     const struct group_multi *m = data;
+    secp256k1_scalar k;
 
-    *sc = m->sc[idx];
-    *pt = m->pt[idx];
+    if (idx == m->fail_at) {
+        return 0;
+    }
+    secp256k1_scalar_set_int(&k, (unsigned int)(idx / GROUP_REGS));
+    secp256k1_scalar_mul(&k, &k, &m->step);
+    secp256k1_scalar_add(sc, &m->sc[idx % GROUP_REGS], &k);
+    *pt = m->pt[idx % GROUP_REGS];
     return 1;
 }
 
@@ -153,6 +163,46 @@ static void group_ecmult_const_xonly(struct transcript *t, struct reader *r, con
     }
 }
 
+/* ng*G + the sum of the points, as MuSig key aggregation computes it: the four
+ * registers without scratch space, or with flag bit 1 up to 255 points and a
+ * scratch space of fuzzed size, which picks Strauss or Pippenger (from 88
+ * points) and how many batches, or the scratch-free fallback when too small.
+ * Flag bit 0 drops ng, bit 2 makes the callback fail. */
+static int group_ecmult_multi(struct reader *r, secp256k1_gej *res, const secp256k1_gej *reg) {
+    struct group_multi m;
+    secp256k1_scalar ng;
+    secp256k1_scratch_space *scratch = NULL;
+    size_t n = GROUP_REGS;
+    unsigned int flags;
+    int j, ret;
+
+    group_take_scalar(r, &ng);
+    flags = reader_u8(r);
+    for (j = 0; j < GROUP_REGS; j++) {
+        group_take_scalar(r, &m.sc[j]);
+        group_affine(&m.pt[j], &reg[j]);
+    }
+    secp256k1_scalar_set_int(&m.step, 0);
+    m.fail_at = SIZE_MAX;
+    if (flags & 2) {
+        n = reader_u8(r);
+        group_take_scalar(r, &m.step);
+        scratch = secp256k1_scratch_space_create(variant_ctx, (size_t)reader_u16(r) * 8);
+    }
+    if (flags & 4) {
+        m.fail_at = reader_u8(r);
+    }
+    ret = secp256k1_ecmult_multi_var(&variant_ctx->error_callback, scratch, res, (flags & 1) ? NULL : &ng,
+                                     group_multi_callback, &m, n);
+    secp256k1_scratch_space_destroy(variant_ctx, scratch);
+    if (!ret) {
+        /* A failed batch leaves a partial sum, which depends on the batch sizes
+         * and so on the struct sizes of the build. */
+        secp256k1_gej_set_infinity(res);
+    }
+    return ret;
+}
+
 /* All registers to affine at once, as the ecmult tables do. The constant-time
  * batch rejects infinity. */
 static void group_batch_affine(struct transcript *t, const secp256k1_gej *reg) {
@@ -192,9 +242,8 @@ static size_t target_group(const unsigned char *in, size_t len, unsigned char *o
         secp256k1_ge ga, gb, ge;
         secp256k1_scalar s1, s2;
         secp256k1_fe f1, f2, f3, rzr;
-        struct group_multi m;
         unsigned int flags;
-        int j, ret;
+        int ret;
 
         group_affine(&ga, a);
         group_affine(&gb, b);
@@ -288,16 +337,7 @@ static size_t target_group(const unsigned char *in, size_t len, unsigned char *o
             group_ecmult_const_xonly(&t, &r, &ga);
             break;
         case GROUP_ECMULT_MULTI:
-            /* ng*G + sum of s_j*reg[j], as MuSig key aggregation computes it. */
-            group_take_scalar(&r, &s1);
-            flags = reader_u8(&r);
-            for (j = 0; j < GROUP_REGS; j++) {
-                group_take_scalar(&r, &m.sc[j]);
-                group_affine(&m.pt[j], &reg[j]);
-            }
-            ret = secp256k1_ecmult_multi_var(&variant_ctx->error_callback, NULL, &res,
-                                             (flags & 1) ? NULL : &s1, group_multi_callback, &m, GROUP_REGS);
-            transcript_int(&t, ret);
+            transcript_int(&t, group_ecmult_multi(&r, &res, reg));
             break;
         case GROUP_BATCH_AFFINE:
             group_batch_affine(&t, reg);

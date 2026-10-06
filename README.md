@@ -40,32 +40,45 @@ bytes around it.
 
 ## Targets
 
-| Target           | Covers                                                                                 |
-|------------------|----------------------------------------------------------------------------------------|
-| `ecdsa`          | pubkey parsing, strict and lax DER, low-S normalization, sign, verify                  |
-| `schnorrsig`     | BIP340 sign and verify with any message length, x-only parsing, taproot tweak check    |
-| `recovery`       | recoverable ECDSA signing and public key recovery                                      |
-| `keys`           | seckey and pubkey tweaks, negation, combination, sorting, taproot keypair tweaks, ECDH |
-| `musig`          | MuSig2 key aggregation and tweaks, nonces, partial signatures and their aggregation    |
-| `silentpayments` | BIP352 output creation, labels, prevouts summary and scanning                          |
-| `ellswift`       | BIP324 ElligatorSwift encoding and decoding, x-only ECDH                               |
-| `field`          | field arithmetic via a register machine (internal API)                                 |
-| `scalar`         | scalar arithmetic via a register machine (internal API)                                |
-| `group`          | point addition, doubling and multiplication via a register machine (internal API)      |
+| Target           | Covers                                                                                                 |
+|------------------|--------------------------------------------------------------------------------------------------------|
+| `ecdsa`          | pubkey parsing, strict and lax DER, low-S normalization, sign with any nonce function, verify          |
+| `schnorrsig`     | BIP340 sign and verify with any message length and nonce function, x-only parsing, taproot tweak check |
+| `recovery`       | recoverable ECDSA signing and public key recovery                                                      |
+| `keys`           | seckey and pubkey tweaks, negation, combination, sorting, taproot keypair tweaks, ECDH                 |
+| `musig`          | MuSig2 key aggregation and tweaks, nonces, partial signatures and their aggregation                    |
+| `silentpayments` | BIP352 output creation, labels, prevouts summary and scanning, the recipient group limit               |
+| `ellswift`       | BIP324 ElligatorSwift encoding and decoding, x-only ECDH                                               |
+| `field`          | field arithmetic via a register machine (internal API)                                                 |
+| `scalar`         | scalar arithmetic via a register machine (internal API)                                                |
+| `group`          | point addition, doubling, single and multi-point multiplication via a register machine (internal API)  |
 
 The signature targets sign first and then mutate the signature, message or key,
 reaching verify paths random bytes almost never hit. `ecdsa` also mutates the
 signature's DER encoding, reaching the strict parser, and builds the key from a
 chosen R, so verification recomputes infinity or an x at least the group order,
 which no signer can reach. It also builds DER encodings from fuzzed integers
-with the lengths computed, some long-form or short by a few bytes. That reaches
-the parser's length and padding rules, which mutated encodings rarely do: every
-length has to stay consistent first. `schnorrsig` can turn its signature
-(r, s) into (r, 2ed - s), which verification computes as -R: the right x with
-an odd y, which only the signer's key produces. `keys` can take a tweak from
-another register's secret key, so a key plus its negation sums to zero. `group`
-builds its points as k·G from fuzzed scalars, so it reaches the exceptional
-cases of point addition (doubling, P + (-P), infinity) that signatures can't.
+with the lengths computed, some long-form, short by a few bytes or with bytes
+after s. That reaches the parser's length and padding rules, which mutated
+encodings rarely do: every length has to stay consistent first. Its nonce
+function can return fuzzed nonces first: zero, at least the group order, or one
+that makes s zero for a message chosen as -r·d. Each makes signing retry, which
+no RFC6979 nonce does. `schnorrsig` can turn its signature (r, s) into (r, 2ed - s),
+which verification computes as -R: the right x with an odd y, which only the
+signer's key produces. Or into (r, ed), which verification computes as
+infinity. It can also tweak the key by its negation, so the taproot tweak and
+its check meet infinity. `keys` can take a tweak from another register's secret
+key, so a key plus its negation sums to zero. `musig` can compute the aggregate
+secret from the key aggregation coefficients, so a tweak sends the aggregate key
+to infinity. `silentpayments` can label a spend key with its negation, fill a
+label batch, scan a labeled and an unlabeled output of the same k, and send to
+one recipient more than a group may have. The last costs about 5 s per input,
+so it runs only when a hash of the whole input falls in 1/4096 of its range: a
+mutated input mostly keeps a flag, but rerolls the hash. `group` builds its
+points as k·G from fuzzed scalars, so it reaches the exceptional cases of point
+addition (doubling, P + (-P), infinity) that signatures can't. It also
+multiplies up to 255 points at once with a scratch space of fuzzed size, which
+picks Strauss or Pippenger and how many batches.
 
 ## Variants
 
@@ -166,9 +179,10 @@ within 20 seconds, at no cost to their coverage. On `ecdsa` and `group` it
 multiplied the corpus and lowered coverage within five minutes, so they fuzz
 without it. `make merge` then adds only the inputs that raise coverage, counting
 value profile for those targets, and skips any that diverge, so the committed
-corpus stays compact. `make minimize`
-rebuilds each corpus from scratch after a target or libsecp changes what inputs
-reach. Every one of them also exists per target, as in `make fuzz-ecdsa`.
+corpus stays compact. Merging never removes an input, so `make minimize`
+rebuilds each corpus from scratch, dropping the inputs the rest cover, such as
+old ones a target change made redundant. Every one of them also exists per
+target, as in `make fuzz-ecdsa`.
 
 `make coverage` replays the corpus through `guide`'s flags without sanitizers and
 writes an llvm-cov report to `build/coverage`: a per-file summary in `report.txt`
@@ -237,10 +251,11 @@ passes. A failed run leaves the bump on the `bump-secp256k1` branch: upstream
 broke a target or changed behavior against the baseline.
 
 `.github/workflows/fuzz.yml` fuzzes every target for 30 minutes daily, with the
-oracle on every Linux architecture, adds the inputs that raise coverage once CI
-passes on them, and uploads a coverage report. A divergence fails the run without printing it, skips that day's corpus
-update, and uploads its reproducer and logs encrypted to the maintainer's PGP
-key (`ci/maintainer.asc`), since artifacts of a public repository are public:
+oracle on every Linux architecture, adds the inputs that raise coverage and
+minimizes the corpus once CI passes on them, and uploads a coverage report. A
+divergence fails the run without printing it, skips that day's corpus update,
+and uploads its reproducer and logs encrypted to the maintainer's PGP key
+(`ci/maintainer.asc`), since artifacts of a public repository are public:
 
 ```sh
 gh run download <run-id> -n reproducers && gpg -d reproducers.tar.gz.gpg | tar -xz
@@ -261,7 +276,7 @@ versions.
 
 <!-- coverage:begin -->
 
-libsecp `22245aedf400`: 86.91% of lines, 60.54% of branches, 89.09% of functions.
+libsecp `22245aedf400`: 92.94% of lines, 66.37% of branches, 95.15% of functions.
 
 Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 
@@ -269,11 +284,11 @@ Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 |------|------:|---------:|----------:|
 | `contrib/lax_der_parsing.c` | 100.00% | 100.00% | 100.00% |
 | `src/assumptions.h` | 0.00% | - | 0.00% |
-| `src/ecdsa_impl.h` | 97.40% | 95.19% | 100.00% |
+| `src/ecdsa_impl.h` | 100.00% | 97.12% | 100.00% |
 | `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
 | `src/ecmult_const_impl.h` | 100.00% | 74.14% | 100.00% |
-| `src/ecmult_gen_impl.h` | 94.92% | 78.12% | 85.71% |
-| `src/ecmult_impl.h` | 41.10% | 33.01% | 44.00% |
+| `src/ecmult_gen_impl.h` | 100.00% | 78.12% | 100.00% |
+| `src/ecmult_impl.h` | 90.21% | 79.17% | 88.00% |
 | `src/field_5x52_impl.h` | 97.85% | 66.67% | 96.67% |
 | `src/field_5x52_int128_impl.h` | 100.00% | 50.00% | 100.00% |
 | `src/field_impl.h` | 96.61% | 66.07% | 96.77% |
@@ -282,18 +297,18 @@ Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 | `src/hsort_impl.h` | 94.55% | 76.92% | 100.00% |
 | `src/int128_native_impl.h` | 91.18% | 60.71% | 89.47% |
 | `src/modinv64_impl.h` | 99.18% | 62.24% | 100.00% |
-| `src/modules/ecdh/main_impl.h` | 93.18% | 58.33% | 66.67% |
-| `src/modules/ellswift/main_impl.h` | 96.63% | 63.16% | 88.89% |
-| `src/modules/extrakeys/main_impl.h` | 91.87% | 57.94% | 100.00% |
-| `src/modules/musig/keyagg_impl.h` | 92.39% | 62.16% | 100.00% |
+| `src/modules/ecdh/main_impl.h` | 100.00% | 66.67% | 100.00% |
+| `src/modules/ellswift/main_impl.h` | 99.33% | 63.82% | 100.00% |
+| `src/modules/extrakeys/main_impl.h` | 92.82% | 58.73% | 100.00% |
+| `src/modules/musig/keyagg_impl.h` | 93.48% | 63.51% | 100.00% |
 | `src/modules/musig/session_impl.h` | 92.09% | 63.67% | 100.00% |
 | `src/modules/recovery/main_impl.h` | 96.00% | 60.61% | 100.00% |
-| `src/modules/schnorrsig/main_impl.h` | 93.64% | 64.06% | 90.00% |
-| `src/modules/silentpayments/main_impl.h` | 87.53% | 65.95% | 100.00% |
+| `src/modules/schnorrsig/main_impl.h` | 98.84% | 71.88% | 100.00% |
+| `src/modules/silentpayments/main_impl.h` | 89.81% | 68.53% | 100.00% |
 | `src/scalar_4x64_impl.h` | 100.00% | 54.79% | 100.00% |
 | `src/scalar_impl.h` | 100.00% | 59.09% | 100.00% |
-| `src/scratch_impl.h` | 0.00% | 0.00% | 0.00% |
-| `src/secp256k1.c` | 80.94% | 50.00% | 78.00% |
+| `src/scratch_impl.h` | 67.09% | 57.14% | 100.00% |
+| `src/secp256k1.c` | 90.29% | 58.16% | 94.00% |
 | `src/selftest.h` | 83.33% | 33.33% | 100.00% |
 | `src/util.h` | 62.42% | 70.00% | 65.00% |
 
