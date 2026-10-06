@@ -8,7 +8,8 @@
  *
  * Input: repeated [op, selector, operands...]. The selector picks the
  * destination and two source registers; its bit 6 makes a tweak add take the
- * second source's secret key as the tweak (keys_take_tweak). */
+ * second source's secret key as the tweak (keys_take_tweak), and bit 7 makes
+ * ECDH name its default hash function (keys_ecdh). */
 
 #define KEYS_REGS 4
 #define KEYS_MAX_OPS 64
@@ -86,11 +87,23 @@ static int keys_ecdh_xy(unsigned char *output, const unsigned char *x32, const u
     return 1;
 }
 
-static void keys_ecdh(struct transcript *t, const struct keys_reg *a, const struct keys_reg *b) {
+static int keys_ecdh_reject(unsigned char *output, const unsigned char *x32, const unsigned char *y32, void *data) {
+    (void)output;
+    (void)x32;
+    (void)y32;
+    (void)data;
+    return 0;
+}
+
+/* The default hash, passed as NULL or by name, then the raw point, hashed
+ * again by the exported default outside any context. A hash function that
+ * fails fails the ECDH. */
+static void keys_ecdh(struct transcript *t, const struct keys_reg *a, const struct keys_reg *b, int named) {
     unsigned char hashed[32], xy[64];
     int ret;
 
-    ret = secp256k1_ecdh(variant_ctx, hashed, &a->pk, b->sk, NULL, NULL);
+    ret = secp256k1_ecdh(variant_ctx, hashed, &a->pk, b->sk, named ? secp256k1_ecdh_hash_function_sha256 : NULL,
+                         NULL);
     transcript_int(t, ret);
     if (ret) {
         transcript_put(t, hashed, sizeof(hashed));
@@ -99,7 +112,10 @@ static void keys_ecdh(struct transcript *t, const struct keys_reg *a, const stru
     transcript_int(t, ret);
     if (ret) {
         transcript_put(t, xy, sizeof(xy));
+        transcript_int(t, secp256k1_ecdh_hash_function_sha256(hashed, xy, xy + 32, NULL));
+        transcript_put(t, hashed, sizeof(hashed));
     }
+    transcript_int(t, secp256k1_ecdh(variant_ctx, hashed, &a->pk, b->sk, keys_ecdh_reject, NULL));
 }
 
 /* Taproot key-path signing tweaks the keypair; the result lands in d. */
@@ -273,7 +289,7 @@ static size_t target_keys(const unsigned char *in, size_t len, unsigned char *ou
             break;
         case KEYS_ECDH:
             if (a->pk_ok) {
-                keys_ecdh(&t, a, b);
+                keys_ecdh(&t, a, b, (sel & 128) != 0);
             }
             break;
         case KEYS_OP_COUNT:
