@@ -4,8 +4,9 @@
  * Constructed keys reach the ones no signer can: verification recomputing R at
  * infinity, or with an x at least the group order.
  *
- * Input: mode, msg[32], then seckey[32] (+ ndata[32]), or R's kind, x[32] and
- * sig64 to construct the key from, or raw pubkey and sig64; then a built DER
+ * Input: mode, msg[32], then seckey[32] (+ ndata[32]) (+ the nonce function's
+ * flags and two nonces[32]), or R's kind, x[32] and sig64 to construct the key
+ * from, or raw pubkey and sig64; then a built DER
  * encoding (ecdsa_der_build) in DER_BUILD mode; then mutations, and the rest is
  * parsed as a DER signature, after sig64's DER encoding in DER mode or the built
  * one in DER_BUILD mode. */
@@ -16,7 +17,8 @@ enum ecdsa_mode {
     ECDSA_NDATA = 1 << 2,      /* sign with extra nonce data */
     ECDSA_CONSTRUCT = 1 << 3,  /* without ECDSA_SIGN, construct the key from R */
     ECDSA_DER = 1 << 4,        /* DER-encode sig64, so mutations reach the strict parser */
-    ECDSA_DER_BUILD = 1 << 5   /* build a DER encoding from fuzzed integers instead */
+    ECDSA_DER_BUILD = 1 << 5,  /* build a DER encoding from fuzzed integers instead */
+    ECDSA_NONCE = 1 << 6       /* with ECDSA_SIGN, sign through ecdsa_nonce */
 };
 
 enum ecdsa_r {
@@ -27,8 +29,9 @@ enum ecdsa_r {
 };
 
 /* The longest encoding (a built one: 30 82 LL, then two of 02 81 L and 255
- * bytes), one byte inserted per mutation, and the rest of the input. */
-#define ECDSA_DER_MAX (4 + 2 * (3 + 255) + 8 + DIFFSECP_INPUT_MAX)
+ * bytes, and 3 more inside the sequence), one byte inserted per mutation, and
+ * the rest of the input. */
+#define ECDSA_DER_MAX (4 + 2 * (3 + 255) + 3 + 8 + DIFFSECP_INPUT_MAX)
 
 /* Writes DER length octets for len and returns their count: the short form,
  * unless long_form asks for the long one, which DER forbids below 128. */
@@ -50,14 +53,15 @@ static size_t ecdsa_der_len(unsigned char *out, size_t len, int long_form) {
 
 /* A DER signature built from two fuzzed integers of up to 255 bytes, with the
  * lengths computed. Flags pick long-form lengths (bit 0 the sequence's, bits 1
- * and 2 the integers') and a sequence length short by bits 3-4. Mutating a
+ * and 2 the integers') and a sequence length short by bits 3-4, or with bit 5
+ * that many input bytes after the integers, inside the sequence. Mutating a
  * signer's encoding almost never keeps every length consistent, and the strict
  * parser checks lengths before anything else, so its length and padding rules
  * are only reached this way. */
 static size_t ecdsa_der_build(struct reader *r, unsigned char *der) {
     unsigned int flags = reader_u8(r), i;
-    unsigned char body[2 * (3 + 255)];
-    size_t n = 0, len, pos;
+    unsigned char body[2 * (3 + 255) + 3];
+    size_t n = 0, len, pos, short_by = flags >> 3 & 3;
 
     for (i = 0; i < 2; i++) {
         len = reader_u8(r);
@@ -66,8 +70,13 @@ static size_t ecdsa_der_build(struct reader *r, unsigned char *der) {
         reader_take(r, body + n, len);
         n += len;
     }
+    if (flags & 32) {
+        reader_take(r, body + n, short_by);
+        n += short_by;
+        short_by = 0;
+    }
     der[0] = 0x30;
-    pos = 1 + ecdsa_der_len(der + 1, n - (flags >> 3 & 3), (int)(flags & 1));
+    pos = 1 + ecdsa_der_len(der + 1, n - short_by, (int)(flags & 1));
     memcpy(der + pos, body, n);
     return pos + n;
 }
@@ -93,6 +102,10 @@ static void ecdsa_record_sig(struct transcript *t, const secp256k1_ecdsa_signatu
     transcript_int(t, ret);
     if (ret) {
         transcript_put(t, der, len);
+        /* A byte too small fails, and reports the size it needs. */
+        len--;
+        transcript_int(t, secp256k1_ecdsa_signature_serialize_der(variant_ctx, der, &len, sig));
+        transcript_u32(t, (uint32_t)len);
     }
     secp256k1_ecdsa_signature_serialize_compact(variant_ctx, compact, sig);
     transcript_put(t, compact, sizeof(compact));
@@ -105,6 +118,8 @@ static void ecdsa_record_checks(struct transcript *t, const secp256k1_ecdsa_sign
 
     ecdsa_record_sig(t, sig);
     transcript_int(t, secp256k1_ecdsa_signature_normalize(variant_ctx, &low, sig));
+    /* Without an output, it only tells whether s is high. */
+    transcript_int(t, secp256k1_ecdsa_signature_normalize(variant_ctx, NULL, sig));
     ecdsa_record_sig(t, &low);
     if (pk != NULL) {
         transcript_int(t, secp256k1_ecdsa_verify(variant_ctx, sig, msg, pk));
@@ -168,6 +183,83 @@ static int ecdsa_construct(unsigned char *pkser, size_t pklen, unsigned char *si
     return 1;
 }
 
+enum ecdsa_nonce_flag {
+    ECDSA_NONCE_ZERO_S = 1 << 4,   /* pick msg so the first fixed nonce gives s = 0 */
+    ECDSA_NONCE_ALGO = 1 << 5,     /* RFC6979 attempts pass an algorithm name */
+    ECDSA_NONCE_DEFAULT = 1 << 6   /* the exported RFC6979 pointer, which signing treats as the default */
+};
+
+/* Signing retries until the nonce function gives a nonce that signs. Its first
+ * n_fixed attempts return fuzzed nonces, so it reaches the retries no RFC6979
+ * output does: a zero nonce, one at least the order, one giving s = 0. The
+ * attempt numbered fail_at fails the signing (3 is never reached). The rest
+ * come from the exported RFC6979 function, which a retry calls with a nonzero
+ * counter. */
+struct ecdsa_nonce {
+    unsigned char fixed[2][32];
+    unsigned int n_fixed, fail_at;
+    const unsigned char *algo16, *ndata;
+};
+
+static int ecdsa_nonce(unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32,
+                       const unsigned char *algo16, void *data, unsigned int counter) {
+    const struct ecdsa_nonce *n = data;
+
+    (void)algo16;
+    if (counter == n->fail_at) {
+        return 0;
+    }
+    if (counter < n->n_fixed) {
+        memcpy(nonce32, n->fixed[counter], 32);
+        return 1;
+    }
+    return secp256k1_nonce_function_rfc6979(nonce32, msg32, key32, n->algo16, (void *)n->ndata, counter);
+}
+
+/* Sets msg32 to -r*d for r = x(k*G) mod n, so signing with nonce k computes
+ * s = k^-1 (msg + r*d) = 0 and must retry. */
+static int ecdsa_zero_s(unsigned char *msg32, const unsigned char *seckey, const unsigned char *k32) {
+    secp256k1_pubkey kg;
+    secp256k1_scalar r, d;
+    unsigned char ser[33];
+    size_t len = sizeof(ser);
+
+    if (!secp256k1_ec_pubkey_create(variant_ctx, &kg, k32)) {
+        return 0;
+    }
+    secp256k1_ec_pubkey_serialize(variant_ctx, ser, &len, &kg, SECP256K1_EC_COMPRESSED);
+    secp256k1_scalar_set_b32(&r, ser + 1, NULL);
+    secp256k1_scalar_set_b32(&d, seckey, NULL);
+    secp256k1_scalar_mul(&r, &r, &d);
+    secp256k1_scalar_negate(&r, &r);
+    secp256k1_scalar_get_b32(msg32, &r);
+    return 1;
+}
+
+/* Signs through ecdsa_nonce, configured by a flags byte (bits 0-1 n_fixed,
+ * bits 2-3 fail_at, then ecdsa_nonce_flag), or through the exported RFC6979
+ * pointer. */
+static int ecdsa_sign_nonce(struct transcript *t, struct reader *r, secp256k1_ecdsa_signature *sig,
+                            unsigned char *msg, const unsigned char *seckey, const unsigned char *ndata) {
+    static const unsigned char algo16[17] = "diffsecp/ecdsa16";
+    struct ecdsa_nonce n;
+    unsigned int flags = reader_u8(r);
+
+    reader_take(r, n.fixed[0], sizeof(n.fixed[0]));
+    reader_take(r, n.fixed[1], sizeof(n.fixed[1]));
+    if (flags & ECDSA_NONCE_DEFAULT) {
+        return secp256k1_ecdsa_sign(variant_ctx, sig, msg, seckey, secp256k1_nonce_function_rfc6979, ndata);
+    }
+    n.n_fixed = (flags & 3) % 3;
+    n.fail_at = flags >> 2 & 3;
+    n.algo16 = (flags & ECDSA_NONCE_ALGO) ? algo16 : NULL;
+    n.ndata = ndata;
+    if (flags & ECDSA_NONCE_ZERO_S) {
+        transcript_int(t, ecdsa_zero_s(msg, seckey, n.fixed[0]));
+    }
+    return secp256k1_ecdsa_sign(variant_ctx, sig, msg, seckey, ecdsa_nonce, &n);
+}
+
 static size_t target_ecdsa(const unsigned char *in, size_t len, unsigned char *out, size_t cap) {
     struct reader r = {in, len};
     struct transcript t = {out, cap, 0};
@@ -195,7 +287,11 @@ static size_t target_ecdsa(const unsigned char *in, size_t len, unsigned char *o
             if (mode & ECDSA_NDATA) {
                 reader_take(&r, ndata, sizeof(ndata));
             }
-            ok = secp256k1_ecdsa_sign(variant_ctx, &sig, msg, seckey, NULL, (mode & ECDSA_NDATA) ? ndata : NULL);
+            if (mode & ECDSA_NONCE) {
+                ok = ecdsa_sign_nonce(&t, &r, &sig, msg, seckey, (mode & ECDSA_NDATA) ? ndata : NULL);
+            } else {
+                ok = secp256k1_ecdsa_sign(variant_ctx, &sig, msg, seckey, NULL, (mode & ECDSA_NDATA) ? ndata : NULL);
+            }
             transcript_int(&t, ok);
             if (ok) {
                 secp256k1_ecdsa_signature_serialize_compact(variant_ctx, sig64, &sig);
