@@ -40,32 +40,45 @@ bytes around it.
 
 ## Targets
 
-| Target           | Covers                                                                                 |
-|------------------|----------------------------------------------------------------------------------------|
-| `ecdsa`          | pubkey parsing, strict and lax DER, low-S normalization, sign, verify                  |
-| `schnorrsig`     | BIP340 sign and verify with any message length, x-only parsing, taproot tweak check    |
-| `recovery`       | recoverable ECDSA signing and public key recovery                                      |
-| `keys`           | seckey and pubkey tweaks, negation, combination, sorting, taproot keypair tweaks, ECDH |
-| `musig`          | MuSig2 key aggregation and tweaks, nonces, partial signatures and their aggregation    |
-| `silentpayments` | BIP352 output creation, labels, prevouts summary and scanning                          |
-| `ellswift`       | BIP324 ElligatorSwift encoding and decoding, x-only ECDH                               |
-| `field`          | field arithmetic via a register machine (internal API)                                 |
-| `scalar`         | scalar arithmetic via a register machine (internal API)                                |
-| `group`          | point addition, doubling and multiplication via a register machine (internal API)      |
+| Target           | Covers                                                                                                 |
+|------------------|--------------------------------------------------------------------------------------------------------|
+| `ecdsa`          | pubkey parsing, strict and lax DER, low-S normalization, sign with any nonce function, verify          |
+| `schnorrsig`     | BIP340 sign and verify with any message length and nonce function, x-only parsing, taproot tweak check |
+| `recovery`       | recoverable ECDSA signing and public key recovery                                                      |
+| `keys`           | seckey and pubkey tweaks, negation, combination, sorting, taproot keypair tweaks, ECDH                 |
+| `musig`          | MuSig2 key aggregation and tweaks, nonces, partial signatures and their aggregation                    |
+| `silentpayments` | BIP352 output creation, labels, prevouts summary and scanning, the recipient group limit               |
+| `ellswift`       | BIP324 ElligatorSwift encoding and decoding, x-only ECDH                                               |
+| `field`          | field arithmetic via a register machine (internal API)                                                 |
+| `scalar`         | scalar arithmetic via a register machine (internal API)                                                |
+| `group`          | point addition, doubling, single and multi-point multiplication via a register machine (internal API)  |
 
 The signature targets sign first and then mutate the signature, message or key,
 reaching verify paths random bytes almost never hit. `ecdsa` also mutates the
 signature's DER encoding, reaching the strict parser, and builds the key from a
 chosen R, so verification recomputes infinity or an x at least the group order,
 which no signer can reach. It also builds DER encodings from fuzzed integers
-with the lengths computed, some long-form or short by a few bytes. That reaches
-the parser's length and padding rules, which mutated encodings rarely do: every
-length has to stay consistent first. `schnorrsig` can turn its signature
-(r, s) into (r, 2ed - s), which verification computes as -R: the right x with
-an odd y, which only the signer's key produces. `keys` can take a tweak from
-another register's secret key, so a key plus its negation sums to zero. `group`
-builds its points as k·G from fuzzed scalars, so it reaches the exceptional
-cases of point addition (doubling, P + (-P), infinity) that signatures can't.
+with the lengths computed, some long-form, short by a few bytes or with bytes
+after s. That reaches the parser's length and padding rules, which mutated
+encodings rarely do: every length has to stay consistent first. Its nonce
+function can return fuzzed nonces first: zero, at least the group order, or one
+that makes s zero for a message chosen as -r·d. Each makes signing retry, which
+no RFC6979 nonce does. `schnorrsig` can turn its signature (r, s) into (r, 2ed - s),
+which verification computes as -R: the right x with an odd y, which only the
+signer's key produces. Or into (r, ed), which verification computes as
+infinity. It can also tweak the key by its negation, so the taproot tweak and
+its check meet infinity. `keys` can take a tweak from another register's secret
+key, so a key plus its negation sums to zero. `musig` can compute the aggregate
+secret from the key aggregation coefficients, so a tweak sends the aggregate key
+to infinity. `silentpayments` can label a spend key with its negation, fill a
+label batch, scan a labeled and an unlabeled output of the same k, and send to
+one recipient more than a group may have. The last costs about 5 s per input,
+so it runs only when a hash of the whole input falls in 1/4096 of its range: a
+mutated input mostly keeps a flag, but rerolls the hash. `group` builds its
+points as k·G from fuzzed scalars, so it reaches the exceptional cases of point
+addition (doubling, P + (-P), infinity) that signatures can't. It also
+multiplies up to 255 points at once with a scratch space of fuzzed size, which
+picks Strauss or Pippenger and how many batches.
 
 ## Variants
 
