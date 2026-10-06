@@ -45,6 +45,7 @@ static void variant_init(void) {
     static const unsigned char tag[] = "diffsecp blinding";
     static const unsigned char name[] = DIFFSECP_STR(DIFFSECP_VARIANT);
     unsigned char seed[32];
+    secp256k1_context *original;
 
     variant_ctx = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
 #ifdef DIFFSECP_SHA256
@@ -55,6 +56,14 @@ static void variant_init(void) {
 #endif
     if (!secp256k1_tagged_sha256(variant_ctx, seed, tag, sizeof(tag) - 1, name, sizeof(name) - 1) ||
         !secp256k1_context_randomize(variant_ctx, seed)) {
+        abort();
+    }
+    /* Targets run on a clone of the configured context, so a build whose clone
+     * corrupts it diverges. */
+    original = variant_ctx;
+    variant_ctx = secp256k1_context_clone(original);
+    secp256k1_context_destroy(original);
+    if (variant_ctx == NULL) {
         abort();
     }
 }
