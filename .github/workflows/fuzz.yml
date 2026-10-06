@@ -1,8 +1,9 @@
 name: Fuzz
 
 # Fuzzes every target from the corpus on one runner, then adds the inputs that
-# raise coverage to the corpus and refreshes the README's coverage table once CI
-# passes on them. The full coverage report is uploaded as an artifact.
+# raise coverage to the corpus, minimizes it and refreshes the README's coverage
+# table once CI passes on them. The full coverage report is uploaded as an
+# artifact.
 # A divergence fails the run without printing it and uploads its reproducer
 # encrypted to the maintainer's key (ci/seal-reproducers.sh). Daily, finishing
 # before the secp256k1 bump so the two never race to fast-forward master.
@@ -68,6 +69,9 @@ jobs:
       # Skipped after a failure: inputs found near a divergence could point at it.
       - name: Keep the new inputs that raise coverage
         run: make -j"$(nproc)" merge
+      # Merging never removes an input, so ones the new inputs cover would pile up.
+      - name: Drop the inputs the rest of the corpus covers
+        run: make -j"$(nproc)" minimize
       - name: Refresh the README's coverage table
         run: make readme-coverage
       - name: Commit to the fuzz-corpus branch
@@ -83,7 +87,7 @@ jobs:
           if git diff --cached --quiet -- corpus; then
             subject="readme: refresh coverage"
           else
-            subject="corpus: add inputs from daily fuzzing"
+            subject="corpus: update from daily fuzzing"
           fi
           git config user.name 'diffsecp CI'
           git config user.email 'ci@diffsecp.invalid'

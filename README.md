@@ -179,9 +179,10 @@ within 20 seconds, at no cost to their coverage. On `ecdsa` and `group` it
 multiplied the corpus and lowered coverage within five minutes, so they fuzz
 without it. `make merge` then adds only the inputs that raise coverage, counting
 value profile for those targets, and skips any that diverge, so the committed
-corpus stays compact. `make minimize`
-rebuilds each corpus from scratch after a target or libsecp changes what inputs
-reach. Every one of them also exists per target, as in `make fuzz-ecdsa`.
+corpus stays compact. Merging never removes an input, so `make minimize`
+rebuilds each corpus from scratch, dropping the inputs the rest cover, such as
+old ones a target change made redundant. Every one of them also exists per
+target, as in `make fuzz-ecdsa`.
 
 `make coverage` replays the corpus through `guide`'s flags without sanitizers and
 writes an llvm-cov report to `build/coverage`: a per-file summary in `report.txt`
@@ -250,10 +251,11 @@ passes. A failed run leaves the bump on the `bump-secp256k1` branch: upstream
 broke a target or changed behavior against the baseline.
 
 `.github/workflows/fuzz.yml` fuzzes every target for 30 minutes daily, with the
-oracle on every Linux architecture, adds the inputs that raise coverage once CI
-passes on them, and uploads a coverage report. A divergence fails the run without printing it, skips that day's corpus
-update, and uploads its reproducer and logs encrypted to the maintainer's PGP
-key (`ci/maintainer.asc`), since artifacts of a public repository are public:
+oracle on every Linux architecture, adds the inputs that raise coverage and
+minimizes the corpus once CI passes on them, and uploads a coverage report. A
+divergence fails the run without printing it, skips that day's corpus update,
+and uploads its reproducer and logs encrypted to the maintainer's PGP key
+(`ci/maintainer.asc`), since artifacts of a public repository are public:
 
 ```sh
 gh run download <run-id> -n reproducers && gpg -d reproducers.tar.gz.gpg | tar -xz
