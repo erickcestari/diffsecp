@@ -10,7 +10,7 @@
  *
  * Input: flags, signer count, victim, msg[32], extra[32], two tweaks, per
  * signer seckey[32] and secrand[32], then fuzzed pubnonce[66], aggnonce[66]
- * and partial_sig[32]. */
+ * and partial_sig[32], then cancel flags. */
 
 #define MUSIG_MAX_SIGNERS 3
 
@@ -25,8 +25,14 @@ enum musig_flag {
     MUSIG_FUZZ_PARTIAL_SIG = 1 << 7
 };
 
+/* Read last, so inputs from before it keep their meaning. */
+enum musig_cancel {
+    MUSIG_CANCEL_EC = 1 << 0,     /* the plain tweak sends the aggregate key to infinity */
+    MUSIG_CANCEL_XONLY = 1 << 1   /* the x-only one does */
+};
+
 struct musig_input {
-    unsigned int flags, n, victim;
+    unsigned int flags, n, victim, cancel;
     unsigned char msg[32], extra[32], tweak[2][32];
     unsigned char seckey[MUSIG_MAX_SIGNERS][32], secrand[MUSIG_MAX_SIGNERS][32];
     unsigned char pubnonce[66], aggnonce[66], partial_sig[32];
@@ -49,6 +55,7 @@ static void musig_read(struct reader *r, struct musig_input *in) {
     reader_take(r, in->pubnonce, sizeof(in->pubnonce));
     reader_take(r, in->aggnonce, sizeof(in->aggnonce));
     reader_take(r, in->partial_sig, sizeof(in->partial_sig));
+    in->cancel = reader_u8(r);
 }
 
 static void musig_record_pubkey(struct transcript *t, const secp256k1_pubkey *pk) {
@@ -57,6 +64,37 @@ static void musig_record_pubkey(struct transcript *t, const secp256k1_pubkey *pk
 
     secp256k1_ec_pubkey_serialize(variant_ctx, ser, &len, pk, SECP256K1_EC_COMPRESSED);
     transcript_put(t, ser, len);
+}
+
+/* Sets tweak32 to minus the discrete log of the key the next tweak applies to,
+ * which tweaking must reject: the aggregate secret sum a_i*x_i over the key
+ * aggregation coefficients, negated and tweaked as the cache records, then
+ * negated if an x-only tweak would negate an odd key. */
+static void musig_cancel_tweak(unsigned char *tweak32, const secp256k1_musig_keyagg_cache *cache,
+                               const struct musig_input *mi, const secp256k1_pubkey *pubkey, int xonly) {
+    secp256k1_keyagg_cache_internal cache_i;
+    secp256k1_scalar d, a, x;
+    secp256k1_ge pk;
+    unsigned int i;
+
+    secp256k1_keyagg_cache_load(variant_ctx, &cache_i, cache);
+    secp256k1_scalar_set_int(&d, 0);
+    for (i = 0; i < mi->n; i++) {
+        secp256k1_pubkey_load(variant_ctx, &pk, &pubkey[i]);
+        secp256k1_musig_keyaggcoef(&variant_ctx->hash_ctx, &a, &cache_i, &pk);
+        secp256k1_scalar_set_b32(&x, mi->seckey[i], NULL);
+        secp256k1_scalar_mul(&a, &a, &x);
+        secp256k1_scalar_add(&d, &d, &a);
+    }
+    if (cache_i.parity_acc) {
+        secp256k1_scalar_negate(&d, &d);
+    }
+    secp256k1_scalar_add(&d, &d, &cache_i.tweak);
+    secp256k1_fe_normalize_var(&cache_i.pk.y);
+    if (!xonly || !secp256k1_fe_is_odd(&cache_i.pk.y)) {
+        secp256k1_scalar_negate(&d, &d);
+    }
+    secp256k1_scalar_get_b32(tweak32, &d);
 }
 
 static size_t target_musig(const unsigned char *in, size_t len, unsigned char *out, size_t cap) {
@@ -106,6 +144,9 @@ static size_t target_musig(const unsigned char *in, size_t len, unsigned char *o
 
     /* Tweaks as BIP32 derivation (plain) and taproot (x-only) apply them. */
     if (mi.flags & MUSIG_EC_TWEAK) {
+        if (mi.cancel & MUSIG_CANCEL_EC) {
+            musig_cancel_tweak(mi.tweak[0], &cache, &mi, pubkey, 0);
+        }
         ok = secp256k1_musig_pubkey_ec_tweak_add(variant_ctx, &agg, &cache, mi.tweak[0]);
         transcript_int(&t, ok);
         if (!ok) {
@@ -114,6 +155,9 @@ static size_t target_musig(const unsigned char *in, size_t len, unsigned char *o
         musig_record_pubkey(&t, &agg);
     }
     if (mi.flags & MUSIG_XONLY_TWEAK) {
+        if (mi.cancel & MUSIG_CANCEL_XONLY) {
+            musig_cancel_tweak(mi.tweak[1], &cache, &mi, pubkey, 1);
+        }
         ok = secp256k1_musig_pubkey_xonly_tweak_add(variant_ctx, &agg, &cache, mi.tweak[1]);
         transcript_int(&t, ok);
         if (!ok) {
