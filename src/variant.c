@@ -48,6 +48,11 @@ static void variant_init(void) {
     secp256k1_context *original;
 
     variant_ctx = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
+    /* Each setter runs, as a caller configuring its context would: NULL picks
+     * the default, which the builds below then replace. */
+    secp256k1_context_set_error_callback(variant_ctx, NULL, NULL);
+    secp256k1_context_set_illegal_callback(variant_ctx, NULL, NULL);
+    secp256k1_context_set_sha256_compression(variant_ctx, NULL);
 #ifdef DIFFSECP_SHA256
     secp256k1_context_set_sha256_compression(variant_ctx, sha256_compress);
 #endif
@@ -66,6 +71,9 @@ static void variant_init(void) {
     if (variant_ctx == NULL) {
         abort();
     }
+    /* Destroying NULL is defined as a no-op. */
+    secp256k1_context_destroy(NULL);
+    secp256k1_context_preallocated_destroy(NULL);
 }
 
 #include "targets/ecdsa.c"
