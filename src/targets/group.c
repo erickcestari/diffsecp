@@ -8,7 +8,8 @@
  * (for example on the ecmult window size) and differs between builds.
  *
  * Input: repeated [op, selector, operands...]. The selector picks the
- * destination and two source registers. */
+ * destination and two source registers, and its top two bits how many
+ * registers a batch op takes. */
 
 #define GROUP_REGS 4
 /* Point multiplications dominate, so fewer ops than the field and scalar targets. */
@@ -211,20 +212,21 @@ static int group_ecmult_multi(struct reader *r, secp256k1_gej *res, const secp25
     return ret;
 }
 
-/* All registers to affine at once, as the ecmult tables do. The constant-time
- * batch rejects infinity. */
-static void group_batch_affine(struct transcript *t, const secp256k1_gej *reg) {
+/* The first n registers to affine at once, as the ecmult tables do. The
+ * constant-time batch rejects infinity. */
+static void group_batch_affine(struct transcript *t, const secp256k1_gej *reg, size_t n) {
     secp256k1_ge ge[GROUP_REGS];
-    int i, any_infinity = 0;
+    size_t i;
+    int any_infinity = 0;
 
-    secp256k1_ge_set_all_gej_var(ge, reg, GROUP_REGS);
-    for (i = 0; i < GROUP_REGS; i++) {
+    secp256k1_ge_set_all_gej_var(ge, reg, n);
+    for (i = 0; i < n; i++) {
         group_record_ge(t, &ge[i]);
         any_infinity |= reg[i].infinity;
     }
     if (!any_infinity) {
-        secp256k1_ge_set_all_gej(ge, reg, GROUP_REGS);
-        for (i = 0; i < GROUP_REGS; i++) {
+        secp256k1_ge_set_all_gej(ge, reg, n);
+        for (i = 0; i < n; i++) {
             group_record_ge(t, &ge[i]);
         }
     }
@@ -296,17 +298,19 @@ static size_t target_group(const unsigned char *in, size_t len, unsigned char *o
             }
             break;
         case GROUP_ADD_ZINV_VAR:
-            /* b as the jacobian (X*z^2, Y*z^3, z) for a fuzzed z, passing 1/z. */
+            /* b as the jacobian (X*z^2, Y*z^3, z) for a fuzzed z, passing 1/z.
+             * Infinity has no coordinates to scale, so it goes as it is. */
             group_take_nonzero_fe(&r, &f1);
+            ge = gb;
+            f2 = f1;
             if (!gb.infinity) {
                 secp256k1_fe_sqr(&f2, &f1);
                 secp256k1_fe_mul(&ge.x, &gb.x, &f2);
                 secp256k1_fe_mul(&f3, &f2, &f1);
                 secp256k1_fe_mul(&ge.y, &gb.y, &f3);
-                ge.infinity = 0;
                 secp256k1_fe_inv_var(&f2, &f1);
-                secp256k1_gej_add_zinv_var(&res, a, &ge, &f2);
             }
+            secp256k1_gej_add_zinv_var(&res, a, &ge, &f2);
             break;
         case GROUP_DOUBLE:
             secp256k1_gej_double(&res, a);
@@ -348,7 +352,8 @@ static size_t target_group(const unsigned char *in, size_t len, unsigned char *o
             transcript_int(&t, group_ecmult_multi(&r, &res, reg));
             break;
         case GROUP_BATCH_AFFINE:
-            group_batch_affine(&t, reg);
+            /* All four registers, two, one or none. */
+            group_batch_affine(&t, reg, GROUP_REGS >> (sel >> 6));
             break;
         case GROUP_QUERY:
             group_query(&t, &r, a, b, &ga, &gb);
