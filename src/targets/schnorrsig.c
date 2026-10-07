@@ -56,10 +56,12 @@ static int schnorrsig_odd_r(unsigned char *sig64, const unsigned char *msg32, co
     return 1;
 }
 
-/* Turns a signature (r, s) into (r, ed), which verification computes as
- * s*G - e*P = infinity, which BIP340 rejects. */
+/* Turns a signature into (0, ed), which verification computes as
+ * s*G - e*P = infinity, which BIP340 rejects. r = 0 is the x infinity carries,
+ * so a verifier that skipped the infinity check would accept. */
 static int schnorrsig_infinity_r(unsigned char *sig64, const unsigned char *msg32, const secp256k1_keypair *keypair,
                                  int parity, const unsigned char *pk32) {
+    memset(sig64, 0, 32);
     return schnorrsig_challenge_key(sig64 + 32, sig64, msg32, keypair, parity, pk32);
 }
 
