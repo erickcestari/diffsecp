@@ -272,3 +272,64 @@ src/modinv32_impl.h secp256k1_modinv32_normalize_30
     In a second step
     r8 >> 31
     0
+
+# BIP340 verification rejects an R at infinity. Without the check, r = 0, the x
+# infinity carries, verifies.
+src/modules/schnorrsig/main_impl.h secp256k1_schnorrsig_verify
+    secp256k1_ge_is_infinity(&r)
+    0
+
+# A pubkey tweak at least the group order is rejected, here reduced instead, so
+# taproot's tweak check accepts it too.
+src/secp256k1.c secp256k1_ec_pubkey_tweak_add_helper
+    !overflow
+    1
+
+# ECDSA signing retries a nonce that gives s = 0; this one gives up.
+src/secp256k1.c secp256k1_ecdsa_sign_inner
+    secp256k1_declassify(ctx, &ret, sizeof(ret));
+    (ret)
+    (1)
+
+# A nonce at least the group order is skipped, here used reduced.
+src/secp256k1.c secp256k1_ecdsa_sign_inner
+    sizeof(is_nonce_valid));
+    (is_nonce_valid)
+    (1)
+
+# Strict DER rejects bytes after s inside the sequence.
+src/ecdsa_impl.h secp256k1_ecdsa_sig_parse
+    sig != sigend
+    0
+
+# A recipient group holds at most the limit's outputs, here one more.
+src/modules/silentpayments/main_impl.h secp256k1_silentpayments_sender_create_outputs
+    k >= SECP256K1_SILENTPAYMENTS_RECIPIENT_GROUP_LIMIT
+    k > SECP256K1_SILENTPAYMENTS_RECIPIENT_GROUP_LIMIT
+
+# A label that cancels the spend key leaves no labeled key, here infinity.
+src/modules/silentpayments/main_impl.h secp256k1_silentpayments_recipient_create_labeled_spend_pubkey
+    secp256k1_gej_is_infinity(&result_gej)
+    0
+
+# An invalid scan key fails scanning; here it scans.
+src/modules/silentpayments/main_impl.h secp256k1_silentpayments_recipient_scan_outputs
+    !valid_scan_key
+    0
+
+# A label match ahead of a direct match for the same k wins; here the direct one.
+src/modules/silentpayments/main_impl.h secp256k1_silentpayments_recipient_scan_outputs
+    label_found_idx != -1
+    0
+
+# Only the first batch of a multi-point multiplication adds ng*G; here the
+# second does too.
+src/ecmult_impl.h secp256k1_ecmult_multi_var
+    i == 0
+    i <= 1
+
+# Pippenger adds a point with a negative digit to its negation's bucket; here a
+# digit of -1 is dropped.
+src/ecmult_impl.h secp256k1_ecmult_pippenger_wnaf
+    n < 0
+    n < -1

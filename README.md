@@ -195,10 +195,12 @@ Coverage can't tell whether the fuzzer fed the values where arithmetic goes
 wrong, such as p, n and (n-1)/2. `mutants/mutants.txt` lists bugs that show only
 at such values. One example is `>=` turned into `>` in the check that rejects
 field elements at least p. Others cover key tweaks that sum to zero or
-infinity, ElligatorSwift's special cases, the exceptional cases of point
-addition, strict DER parsing and serialization, scalar addition, negation and
-reduction, the last step of modular inversion, and BIP340's check that R has an
-even y. `mutants/gen.py` puts all of them into one copy of libsecp, each behind
+infinity or reach the group order, ElligatorSwift's special cases, the
+exceptional cases of point addition, strict DER parsing and serialization,
+scalar addition, negation and reduction, the last step of modular inversion,
+BIP340's checks that R has an even y and is not infinity, ECDSA signing's
+retries, silent payments' group limit, label precedence and key checks, and
+the batches and buckets of multi-point multiplication. `mutants/gen.py` puts all of them into one copy of libsecp, each behind
 a run-time switch. That copy is built twice, as `mutant` on the int128 code and
 `mutant_int64` on the int64 code, so both field and scalar implementations have
 mutants.
