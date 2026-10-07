@@ -65,9 +65,10 @@ def parse(path):
 
 
 def body(text, function):
-    """Returns the span of FUNCTION's body in text: from its definition line,
-    which starts in column 0 and ends in "{", to the first line that is just "}"."""
-    head = re.compile(r"^\w[^;\n]*\b%s\(.*\{$" % re.escape(function), re.M)
+    """Returns the span of FUNCTION's body in text: from its definition, which
+    starts in column 0 and whose parameters may span lines up to the "{" that
+    ends one, to the first line that is just "}"."""
+    head = re.compile(r"^\w[^;\n]*\b%s\([^;{]*\)\s*\{$" % re.escape(function), re.M)
     heads = list(head.finditer(text))
     if len(heads) != 1:
         return None

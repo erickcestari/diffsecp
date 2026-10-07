@@ -160,7 +160,8 @@ static void keys_xonly(struct transcript *t, struct keys_reg *d, const struct ke
     transcript_int(t, parity);
     transcript_put(t, ser, sizeof(ser));
     if (b->pk_ok) {
-        secp256k1_xonly_pubkey_from_pubkey(variant_ctx, &xb, &parity, &b->pk);
+        /* Its parity is optional. */
+        secp256k1_xonly_pubkey_from_pubkey(variant_ctx, &xb, NULL, &b->pk);
         transcript_int(t, keys_sign(secp256k1_xonly_pubkey_cmp(variant_ctx, &xa, &xb)));
     }
     ret = secp256k1_xonly_pubkey_tweak_add(variant_ctx, &tweaked, &xa, tweak);
@@ -234,8 +235,10 @@ static size_t target_keys(const unsigned char *in, size_t len, unsigned char *ou
             res.pk_ok = secp256k1_ec_pubkey_create(variant_ctx, &res.pk, a->sk);
             break;
         case KEYS_PUBKEY_PARSE:
-            /* 33 or 65 bytes; 65 also admits the hybrid 0x06/0x07 prefixes. */
-            n = (reader_u8(&r) & 1) ? 65 : 33;
+            /* 33 or 65 bytes; 65 also admits the hybrid 0x06/0x07 prefixes.
+             * With bit 1, any length below 64, of which only 33 can parse. */
+            flags = reader_u8(&r);
+            n = (flags & 2) ? flags >> 2 : (flags & 1) ? 65 : 33;
             reader_take(&r, ser, n);
             res.pk_ok = secp256k1_ec_pubkey_parse(variant_ctx, &res.pk, ser, n);
             break;
