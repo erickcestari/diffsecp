@@ -279,9 +279,9 @@ versions.
 
 <!-- coverage:begin -->
 
-libsecp `22245aedf400`: 92.94% of lines, 66.37% of branches, 95.15% of functions.
+libsecp `22245aedf400`: 93.44% of lines, 67.06% of branches, 95.76% of functions.
 
-Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
+Mutation score: 68 of 68 mutants killed, 0 masked, 0 missed.
 
 | File | Lines | Branches | Functions |
 |------|------:|---------:|----------:|
@@ -291,19 +291,19 @@ Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 | `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
 | `src/ecmult_const_impl.h` | 100.00% | 74.14% | 100.00% |
 | `src/ecmult_gen_impl.h` | 100.00% | 78.12% | 100.00% |
-| `src/ecmult_impl.h` | 90.21% | 79.17% | 88.00% |
+| `src/ecmult_impl.h` | 90.75% | 80.13% | 88.00% |
 | `src/field_5x52_impl.h` | 97.85% | 66.67% | 96.67% |
 | `src/field_5x52_int128_impl.h` | 100.00% | 50.00% | 100.00% |
 | `src/field_impl.h` | 96.61% | 66.07% | 96.77% |
-| `src/group_impl.h` | 96.41% | 71.47% | 95.74% |
+| `src/group_impl.h` | 96.99% | 72.06% | 95.74% |
 | `src/hash_impl.h` | 82.41% | 63.04% | 88.89% |
 | `src/hsort_impl.h` | 94.55% | 76.92% | 100.00% |
 | `src/int128_native_impl.h` | 91.18% | 60.71% | 89.47% |
 | `src/modinv64_impl.h` | 99.18% | 62.24% | 100.00% |
 | `src/modules/ecdh/main_impl.h` | 100.00% | 66.67% | 100.00% |
 | `src/modules/ellswift/main_impl.h` | 99.33% | 63.82% | 100.00% |
-| `src/modules/extrakeys/main_impl.h` | 92.82% | 58.73% | 100.00% |
-| `src/modules/musig/keyagg_impl.h` | 93.48% | 63.51% | 100.00% |
+| `src/modules/extrakeys/main_impl.h` | 92.82% | 59.52% | 100.00% |
+| `src/modules/musig/keyagg_impl.h` | 93.48% | 70.27% | 100.00% |
 | `src/modules/musig/session_impl.h` | 92.09% | 63.67% | 100.00% |
 | `src/modules/recovery/main_impl.h` | 96.00% | 60.61% | 100.00% |
 | `src/modules/schnorrsig/main_impl.h` | 98.84% | 71.88% | 100.00% |
@@ -311,7 +311,7 @@ Mutation score: 57 of 57 mutants killed, 0 masked, 0 missed.
 | `src/scalar_4x64_impl.h` | 100.00% | 54.79% | 100.00% |
 | `src/scalar_impl.h` | 100.00% | 59.09% | 100.00% |
 | `src/scratch_impl.h` | 67.09% | 57.14% | 100.00% |
-| `src/secp256k1.c` | 90.29% | 58.16% | 94.00% |
+| `src/secp256k1.c` | 95.15% | 62.24% | 100.00% |
 | `src/selftest.h` | 83.33% | 33.33% | 100.00% |
 | `src/util.h` | 62.42% | 70.00% | 65.00% |
 
