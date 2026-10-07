@@ -63,22 +63,23 @@ after s. That reaches the parser's length and padding rules, which mutated
 encodings rarely do: every length has to stay consistent first. Its nonce
 function can return fuzzed nonces first: zero, at least the group order, or one
 that makes s zero for a message chosen as -r·d. Each makes signing retry, which
-no RFC6979 nonce does. `schnorrsig` can turn its signature (r, s) into (r, 2ed - s),
-which verification computes as -R: the right x with an odd y, which only the
-signer's key produces. Or into (r, ed), which verification computes as
-infinity. It can also tweak the key by its negation, so the taproot tweak and
-its check meet infinity. `keys` can take a tweak from another register's secret
-key, so a key plus its negation sums to zero. `musig` can compute the aggregate
-secret from the key aggregation coefficients, so a tweak sends the aggregate key
-to infinity. `silentpayments` can label a spend key with its negation, fill a
-label batch, scan a labeled and an unlabeled output of the same k, and send to
-one recipient more than a group may have. The last costs about 5 s per input,
-so it runs only when a hash of the whole input falls in 1/4096 of its range: a
-mutated input mostly keeps a flag, but rerolls the hash. `group` builds its
-points as k·G from fuzzed scalars, so it reaches the exceptional cases of point
-addition (doubling, P + (-P), infinity) that signatures can't. It also
-multiplies up to 255 points at once with a scratch space of fuzzed size, which
-picks Strauss or Pippenger and how many batches.
+no RFC6979 nonce does. `schnorrsig` can turn its signature (r, s) into (r, 2ed -
+s), which verification computes as -R: the right x with an odd y, which only the
+signer's key produces. Or into (0, ed), which verification computes as infinity,
+whose x is 0: a verifier that skipped the check would accept it. It can also
+tweak the key by its negation, so the taproot tweak and its check meet infinity.
+`keys` can take a tweak from another register's secret key, so a key plus its
+negation sums to zero. `musig` can compute the aggregate secret from the key
+aggregation coefficients, so a tweak sends the aggregate key to infinity.
+`silentpayments` can label a spend key with its negation, fill a label batch,
+scan a labeled and an unlabeled output of the same k, and send to one recipient
+more than a group may have. The last costs about 5 s per input, so it runs only
+when a hash of the whole input falls in 1/4096 of its range: a mutated input
+mostly keeps a flag, but rerolls the hash. `group` builds its points as k·G from
+fuzzed scalars, so it reaches the exceptional cases of point addition (doubling,
+P + (-P), infinity) that signatures can't. It also multiplies up to 255 points
+at once with a scratch space of fuzzed size, which picks Strauss or Pippenger
+and how many batches.
 
 ## Variants
 
