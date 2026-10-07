@@ -163,6 +163,14 @@ static void group_ecmult_const_xonly(struct transcript *t, struct reader *r, con
     }
 }
 
+/* A scratch size from 16 fuzzed bits: a 12-bit mantissa shifted by up to 9, so
+ * every scale comes up: sizes too small for any point, the narrow range where
+ * Pippenger fits a point but Strauss does not, and the megabytes Pippenger's
+ * larger bucket windows need. */
+static size_t group_scratch_size(unsigned int v) {
+    return (size_t)(v & 0xFFF) << ((v >> 12) % 10);
+}
+
 /* ng*G + the sum of the points, as MuSig key aggregation computes it: the four
  * registers without scratch space, or with flag bit 1 up to 255 points and a
  * scratch space of fuzzed size, which picks Strauss or Pippenger (from 88
@@ -187,7 +195,7 @@ static int group_ecmult_multi(struct reader *r, secp256k1_gej *res, const secp25
     if (flags & 2) {
         n = reader_u8(r);
         group_take_scalar(r, &m.step);
-        scratch = secp256k1_scratch_space_create(variant_ctx, (size_t)reader_u16(r) * 8);
+        scratch = secp256k1_scratch_space_create(variant_ctx, group_scratch_size(reader_u16(r)));
     }
     if (flags & 4) {
         m.fail_at = reader_u8(r);
