@@ -160,7 +160,8 @@ static void keys_xonly(struct transcript *t, struct keys_reg *d, const struct ke
     transcript_int(t, parity);
     transcript_put(t, ser, sizeof(ser));
     if (b->pk_ok) {
-        secp256k1_xonly_pubkey_from_pubkey(variant_ctx, &xb, &parity, &b->pk);
+        /* Its parity is optional. */
+        secp256k1_xonly_pubkey_from_pubkey(variant_ctx, &xb, NULL, &b->pk);
         transcript_int(t, keys_sign(secp256k1_xonly_pubkey_cmp(variant_ctx, &xa, &xb)));
     }
     ret = secp256k1_xonly_pubkey_tweak_add(variant_ctx, &tweaked, &xa, tweak);
