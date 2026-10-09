@@ -8,7 +8,8 @@
  *
  * Input: flags, outpoint[36], input count and kinds, per input seckey[32],
  * scan, spend and foreign seckeys, label m, recipient count and label mask,
- * then a raw x-only output, its position and a raw label. */
+ * then a raw x-only output, its position and a raw label, then extra flags and
+ * a raw label tweak. */
 
 #define SP_MAX_INPUTS 3
 #define SP_MAX_RECIPIENTS 3
@@ -22,6 +23,10 @@ enum sp_flag {
     SP_PAD = 1 << 5,           /* insert LABEL_BATCH_SIZE copies of the fuzzed output, a full label batch */
     SP_TWIN = 1 << 6,          /* scan the twin output first (target_silentpayments) */
     SP_LIMIT = 1 << 7          /* the recipient group limit, in 1 of SP_LIMIT_ODDS inputs (sp_limit_due) */
+};
+
+enum sp_extra_flag {
+    SP_RAW_TWEAK = 1 << 0  /* the label cache returns the raw tweak, as a corrupt one would */
 };
 
 /* The scanned transaction: the twin, the generated outputs and the padding. */
@@ -41,9 +46,9 @@ static const unsigned char *sp_label_lookup(const unsigned char *label33, const 
 }
 
 struct sp_input {
-    unsigned int flags, n_inputs, kinds, n_recipients, labeled, out_pos;
+    unsigned int flags, n_inputs, kinds, n_recipients, labeled, out_pos, extra;
     unsigned char outpoint[36], seckey[SP_MAX_INPUTS][32], scan[32], spend[32], foreign[32];
-    unsigned char output[32], label[33];
+    unsigned char output[32], label[33], raw_tweak[32];
     uint32_t m;
 };
 
@@ -68,6 +73,8 @@ static void sp_read(struct reader *r, struct sp_input *in) {
     reader_take(r, in->output, sizeof(in->output));
     in->out_pos = reader_u8(r);
     reader_take(r, in->label, sizeof(in->label));
+    in->extra = reader_u8(r);
+    reader_take(r, in->raw_tweak, sizeof(in->raw_tweak));
 }
 
 static void sp_record_pubkey(struct transcript *t, const secp256k1_pubkey *pk) {
@@ -302,6 +309,11 @@ static size_t target_silentpayments(const unsigned char *in, size_t len, unsigne
                 sp_record_pubkey(&t, &labeled_pk);
             }
         }
+    }
+    /* The library trusts the cache's tweak: one that overflows, or cancels the
+     * output's own tweak, leaves the found output a zero tweak. */
+    if (label_ok && (si.extra & SP_RAW_TWEAK)) {
+        memcpy(cache.tweak32, si.raw_tweak, sizeof(cache.tweak32));
     }
     if (si.flags & SP_LABEL_CANCEL) {
         sp_label_cancel(&t, &spend_pk);

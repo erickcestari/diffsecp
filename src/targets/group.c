@@ -165,24 +165,44 @@ static void group_ecmult_const_xonly(struct transcript *t, struct reader *r, con
 }
 
 /* A scratch size from 16 fuzzed bits: a 12-bit mantissa shifted by up to 9, so
- * every scale comes up: sizes too small for any point, the narrow range where
- * Pippenger fits a point but Strauss does not, and the megabytes Pippenger's
- * larger bucket windows need. */
+ * every scale comes up, from sizes too small for any point to 2 MB. Strauss
+ * needs less room per point than Pippenger, so no size makes Strauss alone fail
+ * and ecmult_multi_var fall back after it. */
 static size_t group_scratch_size(unsigned int v) {
     return (size_t)(v & 0xFFF) << ((v >> 12) % 10);
+}
+
+/* Pippenger's bucket windows past 7 take more than 1260 points, and its largest
+ * more than 16050, which cost seconds per input across the builds. */
+#define GROUP_LARGE_MIN 1261
+#define GROUP_LARGE_MAX 16384
+#define GROUP_LARGE_ODDS 4096
+
+/* As sp_limit_due: the hash of the whole input (FNV-1a) falls in its lowest
+ * 1/GROUP_LARGE_ODDS, which mutations reroll where they would keep a flag. */
+static int group_large_due(const unsigned char *in, size_t len) {
+    uint32_t h = 2166136261u;
+    size_t i;
+
+    for (i = 0; i < len; i++) {
+        h = (h ^ in[i]) * 16777619u;
+    }
+    return h <= UINT32_MAX / GROUP_LARGE_ODDS;
 }
 
 /* ng*G + the sum of the points, as MuSig key aggregation computes it: the four
  * registers without scratch space, or with flag bit 1 up to 255 points and a
  * scratch space of fuzzed size, which picks Strauss or Pippenger (from 88
  * points) and how many batches, or the scratch-free fallback when too small.
- * Flag bit 0 drops ng, bit 2 makes the callback fail. */
-static int group_ecmult_multi(struct reader *r, secp256k1_gej *res, const secp256k1_gej *reg) {
+ * Flag bit 0 drops ng, bit 2 makes the callback fail, and bit 3, while *large
+ * is set, takes GROUP_LARGE_MIN to GROUP_LARGE_MAX points and a 16 times
+ * larger scratch space, then clears *large. */
+static int group_ecmult_multi(struct reader *r, secp256k1_gej *res, const secp256k1_gej *reg, int *large) {
     struct group_multi m;
     secp256k1_scalar ng;
     secp256k1_scratch_space *scratch = NULL;
     size_t n = GROUP_REGS;
-    unsigned int flags;
+    unsigned int flags, scale = 0;
     int j, ret;
 
     group_take_scalar(r, &ng);
@@ -194,9 +214,15 @@ static int group_ecmult_multi(struct reader *r, secp256k1_gej *res, const secp25
     secp256k1_scalar_set_int(&m.step, 0);
     m.fail_at = SIZE_MAX;
     if (flags & 2) {
-        n = reader_u8(r);
+        if ((flags & 8) && *large) {
+            *large = 0;
+            n = GROUP_LARGE_MIN + reader_u16(r) % (GROUP_LARGE_MAX - GROUP_LARGE_MIN + 1);
+            scale = 4;
+        } else {
+            n = reader_u8(r);
+        }
         group_take_scalar(r, &m.step);
-        scratch = secp256k1_scratch_space_create(variant_ctx, group_scratch_size(reader_u16(r)));
+        scratch = secp256k1_scratch_space_create(variant_ctx, group_scratch_size(reader_u16(r)) << scale);
     }
     if (flags & 4) {
         m.fail_at = reader_u8(r);
@@ -236,7 +262,7 @@ static size_t target_group(const unsigned char *in, size_t len, unsigned char *o
     struct reader r = {in, len};
     struct transcript t = {out, cap, 0};
     secp256k1_gej reg[GROUP_REGS];
-    int i;
+    int i, large = group_large_due(in, len);
 
     for (i = 0; i < GROUP_REGS; i++) {
         secp256k1_gej_set_infinity(&reg[i]);
@@ -349,7 +375,7 @@ static size_t target_group(const unsigned char *in, size_t len, unsigned char *o
             group_ecmult_const_xonly(&t, &r, &ga);
             break;
         case GROUP_ECMULT_MULTI:
-            transcript_int(&t, group_ecmult_multi(&r, &res, reg));
+            transcript_int(&t, group_ecmult_multi(&r, &res, reg, &large));
             break;
         case GROUP_BATCH_AFFINE:
             /* All four registers, two, one or none. */
