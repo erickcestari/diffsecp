@@ -185,10 +185,10 @@ rebuilds each corpus from scratch, dropping the inputs the rest cover, such as
 old ones a target change made redundant. Every one of them also exists per
 target, as in `make fuzz-ecdsa`.
 
-`make coverage` replays the corpus through `guide`'s flags without sanitizers and
-writes an llvm-cov report to `build/coverage`: a per-file summary in `report.txt`
-and annotated sources in `html/`. `COVERAGE_VARIANT=guide_int64` shows the int64
-arithmetic instead.
+`make coverage` replays the corpus through `guide`'s flags without sanitizers or
+`VERIFY` and writes an llvm-cov report to `build/coverage`: a per-file summary
+in `report.txt` and annotated sources in `html/`. `COVERAGE_VARIANT=guide_int64`
+shows the int64 arithmetic instead.
 
 ## Mutants
 
@@ -273,13 +273,14 @@ its reproducers encrypted the same way.
 ## Coverage
 
 What the corpus reaches in libsecp, replayed through `guide`'s configuration by
-`make coverage`. The daily fuzzing workflow refreshes it with
-`make readme-coverage`, using clang 19: branch counts differ between LLVM
-versions.
+`make coverage`, without `VERIFY`: its assertions can't fail, so each would
+count a missed branch, and libsecp's own coverage builds leave it out too. The
+daily fuzzing workflow refreshes it with `make readme-coverage`, using clang 19:
+branch counts differ between LLVM versions.
 
 <!-- coverage:begin -->
 
-libsecp `22245aedf400`: 93.44% of lines, 67.06% of branches, 95.76% of functions.
+libsecp `22245aedf400`: 92.94% of lines, 75.51% of branches, 94.60% of functions.
 
 Mutation score: 68 of 68 mutants killed, 0 masked, 0 missed.
 
@@ -287,32 +288,32 @@ Mutation score: 68 of 68 mutants killed, 0 masked, 0 missed.
 |------|------:|---------:|----------:|
 | `contrib/lax_der_parsing.c` | 100.00% | 100.00% | 100.00% |
 | `src/assumptions.h` | 0.00% | - | 0.00% |
-| `src/ecdsa_impl.h` | 100.00% | 97.12% | 100.00% |
+| `src/ecdsa_impl.h` | 100.00% | 99.00% | 100.00% |
 | `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
-| `src/ecmult_const_impl.h` | 100.00% | 74.14% | 100.00% |
-| `src/ecmult_gen_impl.h` | 100.00% | 78.12% | 100.00% |
-| `src/ecmult_impl.h` | 90.75% | 80.13% | 88.00% |
-| `src/field_5x52_impl.h` | 97.85% | 66.67% | 96.67% |
-| `src/field_5x52_int128_impl.h` | 100.00% | 50.00% | 100.00% |
-| `src/field_impl.h` | 96.61% | 66.07% | 96.77% |
-| `src/group_impl.h` | 96.99% | 72.06% | 95.74% |
-| `src/hash_impl.h` | 82.41% | 63.04% | 88.89% |
-| `src/hsort_impl.h` | 94.55% | 76.92% | 100.00% |
-| `src/int128_native_impl.h` | 91.18% | 60.71% | 89.47% |
-| `src/modinv64_impl.h` | 99.18% | 62.24% | 100.00% |
-| `src/modules/ecdh/main_impl.h` | 100.00% | 66.67% | 100.00% |
-| `src/modules/ellswift/main_impl.h` | 99.33% | 63.82% | 100.00% |
-| `src/modules/extrakeys/main_impl.h` | 92.82% | 59.52% | 100.00% |
-| `src/modules/musig/keyagg_impl.h` | 93.48% | 70.27% | 100.00% |
-| `src/modules/musig/session_impl.h` | 92.09% | 63.67% | 100.00% |
-| `src/modules/recovery/main_impl.h` | 96.00% | 60.61% | 100.00% |
-| `src/modules/schnorrsig/main_impl.h` | 98.84% | 71.88% | 100.00% |
-| `src/modules/silentpayments/main_impl.h` | 89.81% | 68.53% | 100.00% |
-| `src/scalar_4x64_impl.h` | 100.00% | 54.79% | 100.00% |
-| `src/scalar_impl.h` | 100.00% | 59.09% | 100.00% |
-| `src/scratch_impl.h` | 67.09% | 57.14% | 100.00% |
-| `src/secp256k1.c` | 95.15% | 62.24% | 100.00% |
+| `src/ecmult_const_impl.h` | 100.00% | 84.21% | 100.00% |
+| `src/ecmult_gen_impl.h` | 100.00% | 86.36% | 100.00% |
+| `src/ecmult_impl.h` | 90.58% | 84.19% | 88.00% |
+| `src/field_5x52_impl.h` | 97.76% | 100.00% | 96.55% |
+| `src/field_5x52_int128_impl.h` | 100.00% | - | 100.00% |
+| `src/field_impl.h` | 100.00% | 92.31% | 100.00% |
+| `src/group_impl.h` | 96.86% | 73.40% | 95.74% |
+| `src/hash_impl.h` | 82.41% | 73.33% | 88.89% |
+| `src/hsort_impl.h` | 94.55% | 93.75% | 100.00% |
+| `src/int128_native_impl.h` | 60.29% | - | 63.16% |
+| `src/modinv64_impl.h` | 99.31% | 97.83% | 100.00% |
+| `src/modules/ecdh/main_impl.h` | 100.00% | 70.00% | 100.00% |
+| `src/modules/ellswift/main_impl.h` | 99.32% | 66.94% | 100.00% |
+| `src/modules/extrakeys/main_impl.h` | 92.65% | 62.00% | 100.00% |
+| `src/modules/musig/keyagg_impl.h` | 93.48% | 75.86% | 100.00% |
+| `src/modules/musig/session_impl.h` | 92.13% | 66.36% | 100.00% |
+| `src/modules/recovery/main_impl.h` | 96.00% | 64.58% | 100.00% |
+| `src/modules/schnorrsig/main_impl.h` | 98.84% | 74.14% | 100.00% |
+| `src/modules/silentpayments/main_impl.h` | 89.81% | 70.28% | 100.00% |
+| `src/scalar_4x64_impl.h` | 100.00% | 95.83% | 100.00% |
+| `src/scalar_impl.h` | 100.00% | - | 100.00% |
+| `src/scratch_impl.h` | 67.09% | 57.69% | 100.00% |
+| `src/secp256k1.c` | 95.15% | 65.52% | 100.00% |
 | `src/selftest.h` | 83.33% | 33.33% | 100.00% |
-| `src/util.h` | 62.42% | 70.00% | 65.00% |
+| `src/util.h` | 61.73% | 90.00% | 65.00% |
 
 <!-- coverage:end -->

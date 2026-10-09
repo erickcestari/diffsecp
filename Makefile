@@ -33,8 +33,8 @@ ORACLE_DIR    ?= $(BUILD)/cross
 ORACLE_RATE   ?= 0.01
 DOCKER      ?= docker
 CROSS_IMAGE ?= diffsecp-cross
-# `make coverage` builds with this variant's flags minus its sanitizers, and
-# needs the LLVM tools of CLANG's version.
+# `make coverage` builds with this variant's flags minus its sanitizers and
+# VERIFY, and needs the LLVM tools of CLANG's version.
 COVERAGE_VARIANT ?= guide
 LLVM_PROFDATA    ?= llvm-profdata
 LLVM_COV         ?= llvm-cov
@@ -246,7 +246,9 @@ oracle-selftest: $(BUILD)/fuzz_field $(ORACLE_DIR)/cross_selftest/replay$(cross_
 
 # Source coverage of the corpus replayed through one variant's flags, without
 # its sanitizers: what the fuzzer reaches. The report goes to $(BUILD)/coverage.
-COVERAGE_COMPILE = $(CLANG) $(COMMON_CFLAGS) $(filter-out $(SANITIZE_CFLAGS),$($(COVERAGE_VARIANT)_CFLAGS)) \
+# VERIFY's assertions can't fail, yet count their failing sides as missed
+# branches, so it is left out too, as libsecp's own coverage builds do.
+COVERAGE_COMPILE = $(CLANG) $(COMMON_CFLAGS) $(filter-out $(SANITIZE_CFLAGS) -DVERIFY,$($(COVERAGE_VARIANT)_CFLAGS)) \
                    -fprofile-instr-generate -fcoverage-mapping -I$($(COVERAGE_VARIANT)_SECP) \
                    -I$($(COVERAGE_VARIANT)_SECP)/include -DDIFFSECP_VARIANT=coverage
 
