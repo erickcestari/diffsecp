@@ -144,6 +144,17 @@ src/modules/ellswift/main_impl.h secp256k1_ellswift_xswiftec_frac_var
     secp256k1_fe_normalizes_to_zero_var(&p)
     0
 
+# The encoder's inverse fails its x3 branches where r = 0 (the odd ones) or
+# s = 0 (u = x); here it returns an encoding.
+src/modules/ellswift/main_impl.h secp256k1_ellswift_xswiftec_inv_var
+    (c & 1) && secp256k1_fe_normalizes_to_zero_var(&r)
+    0
+
+src/modules/ellswift/main_impl.h secp256k1_ellswift_xswiftec_inv_var
+    If s = 0, fail.
+    secp256k1_fe_normalizes_to_zero_var(&s)
+    0
+
 # The exceptional cases of point addition: P + -P taken for a doubling, P + P
 # for infinity, and the constant-time addition's y1 = -y2 and a = -b cases.
 src/group_impl.h secp256k1_gej_impl_add_var
