@@ -165,9 +165,9 @@ static void group_ecmult_const_xonly(struct transcript *t, struct reader *r, con
 }
 
 /* A scratch size from 16 fuzzed bits: a 12-bit mantissa shifted by up to 9, so
- * every scale comes up: sizes too small for any point, the narrow range where
- * Pippenger fits a point but Strauss does not, and the megabytes Pippenger's
- * larger bucket windows need. */
+ * every scale comes up, from sizes too small for any point to 2 MB. Strauss
+ * needs less room per point than Pippenger, so no size makes Strauss alone fail
+ * and ecmult_multi_var fall back after it. */
 static size_t group_scratch_size(unsigned int v) {
     return (size_t)(v & 0xFFF) << ((v >> 12) % 10);
 }
