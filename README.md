@@ -1,24 +1,21 @@
 # diffsecp
 
-Differential fuzzing of [libsecp256k1](https://github.com/bitcoin-core/secp256k1)
-across builds, architectures and library versions. On x86_64, each input runs
-through every build in one process (compilers, optimization levels, arithmetic
-implementations, table sizes, and libsecp's last release next to master), and
-any difference in results aborts with a reproducer. The corpus the fuzzer grows
-is then replayed on 32-bit ARM, aarch64, riscv64, ppc64, ppc64le and Windows,
-and every result is compared with x86_64.
+Differential fuzzing of [libsecp256k1](https://github.com/bitcoin-core/secp256k1).
+Each input runs through many builds of libsecp in one process (compilers,
+optimization levels, arithmetic implementations, table sizes, and the last
+release next to master), and any difference in results aborts with a
+reproducer. The corpus is then replayed on 32-bit ARM, aarch64, riscv64, ppc64,
+ppc64le and Windows, and compared with x86_64.
 
-Bitcoin nodes run libsecp256k1 built by different compilers for different CPUs:
-Guix release builds use GCC for Linux and Windows and clang for macOS, and
-distros use whatever they ship. Builds that disagree on whether a signature is
-valid split the chain.
-libsecp256k1's own tests check known answers; diffsecp checks that builds
-agree on inputs nobody wrote down.
+Bitcoin nodes run libsecp built by different compilers for different CPUs, and
+builds that disagree on whether a signature is valid split the chain. libsecp's
+own tests check known answers; diffsecp checks that builds agree on inputs
+nobody wrote down.
 
 ## Requirements
 
-clang with libFuzzer, gcc, GNU make, binutils (`objcopy`) and python3, plus
-`llvm-profdata` and `llvm-cov` of the same LLVM for `make coverage`. Docker for
+clang with libFuzzer, gcc, GNU make, binutils and python3, plus `llvm-profdata`
+and `llvm-cov` of the same LLVM for `make coverage`. Docker for
 cross-architecture runs, unless GCC 14 cross toolchains, clang 19 and qemu-user
 are installed.
 
@@ -28,15 +25,18 @@ are installed.
 git submodule update --init
 make -j
 make check                                         # selftest, corpus replay, short fuzz run
-make -j fuzz FUZZ_TIME=3600                        # fuzz every target from the corpus for an hour
-make merge                                         # add the new inputs that raise coverage to the corpus
+make -j fuzz FUZZ_TIME=3600                        # fuzz every target for an hour
+make merge                                         # add the new inputs that raise coverage
+make minimize                                      # rebuild the corpus from scratch
 make coverage                                      # what the corpus reaches, in build/coverage
 make mutation-score                                # which planted bugs the corpus exposes
+make docker-cross                                  # replay the corpus on every architecture
 build/fuzz_ecdsa build/crashes/ecdsa-crash-<hash>  # replay a divergence
 ```
 
-A divergence prints the two builds, the first differing transcript byte and the
-bytes around it.
+`check`, `fuzz`, `merge` and `minimize` also run per target, as in
+`make fuzz-ecdsa`. A divergence prints the two builds and the first differing
+transcript byte.
 
 ## Targets
 
@@ -54,229 +54,87 @@ bytes around it.
 | `group`          | point addition, doubling, single and multi-point multiplication via a register machine (internal API)  |
 
 The signature targets sign first and then mutate the signature, message or key,
-reaching verify paths random bytes almost never hit. `ecdsa` also mutates the
-signature's DER encoding, reaching the strict parser, and builds the key from a
-chosen R, so verification recomputes infinity or an x at least the group order,
-which no signer can reach. It also builds DER encodings from fuzzed integers
-with the lengths computed, some long-form, short by a few bytes or with bytes
-after s. That reaches the parser's length and padding rules, which mutated
-encodings rarely do: every length has to stay consistent first. Its nonce
-function can return fuzzed nonces first: zero, at least the group order, or one
-that makes s zero for a message chosen as -r·d. Each makes signing retry, which
-no RFC6979 nonce does. `schnorrsig` can turn its signature (r, s) into (r, 2ed -
-s), which verification computes as -R: the right x with an odd y, which only the
-signer's key produces. Or into (0, ed), which verification computes as infinity,
-whose x is 0: a verifier that skipped the check would accept it. It can also
-tweak the key by its negation, so the taproot tweak and its check meet infinity.
-`keys` can take a tweak from another register's secret key, so a key plus its
-negation sums to zero. `musig` can compute the aggregate secret from the key
-aggregation coefficients, so a tweak sends the aggregate key to infinity.
-`silentpayments` can label a spend key with its negation, fill a label batch,
-scan a labeled and an unlabeled output of the same k, and send to one recipient
-more than a group may have. The last costs about 5 s per input, so it runs only
-when a hash of the whole input falls in 1/4096 of its range: a mutated input
-mostly keeps a flag, but rerolls the hash. `group` builds its points as k·G from
-fuzzed scalars, so it reaches the exceptional cases of point addition (doubling,
-P + (-P), infinity) that signatures can't. It also multiplies up to 255 points
-at once with a scratch space of fuzzed size, which picks Strauss or Pippenger
-and how many batches.
+reaching verify paths random bytes almost never hit. Each target also builds
+inputs fuzzed bytes can't, such as R at infinity or keys that sum to zero; its
+source in `src/targets` lists them.
 
-## Variants
+## How it works
 
-`variants.mk` lists the builds: a name, a compiler and flags. Every transcript is
-compared against the first variant, `guide`, which is built with coverage, ASan,
-UBSan and libsecp's `VERIFY` checks. It steers the fuzzer and catches the harness
-misusing internal APIs. `guide_int64` does the same on the int64 arithmetic
-(10x26 field, 8x32 scalar), which `guide` never runs, at the cost of about 40%
-fewer executions per second. The others cover release builds with GCC and clang,
-optimizer extremes (`-O0`, `-Os`, `-O3 -march=native`), each arithmetic
-implementation (int128, int128_struct, int64) and the smallest tables.
-`gcc_release_sha256` installs the harness's own SHA256 compression function
-with `secp256k1_context_set_sha256_compression`, as Bitcoin Core installs its
-hardware-accelerated ones, so every hash-dependent result goes through it.
-`baseline` builds `external/secp256k1-baseline`, libsecp v0.8.0, the oldest
-release that builds every target, so any behavior change master makes since
-then shows up as a divergence. It stays put: move it only when a target needs a
-newer API, and only to a commit that shows no divergence.
+`src/variant.c` holds all of libsecp and the targets in one translation unit, so
+targets reach static internals. It is compiled once per build in `variants.mk`,
+and `objcopy` localizes the libsecp symbols so every build links into one
+binary. A target writes every result it observes to a transcript, and
+`src/fuzz.c` compares the transcripts byte for byte against the first build,
+`guide`, which has coverage, ASan, UBSan and libsecp's `VERIFY` and steers the
+fuzzer. `baseline` builds libsecp v0.8.0, so any behavior change on master shows
+up as a divergence. Targets must be deterministic, or the harness reports false
+divergences.
 
-To add one, append its name to `VARIANTS` and set `<name>_CC` and
-`<name>_CFLAGS`, and optionally `<name>_SECP` for another libsecp tree.
-`GCC` and `CLANG` pick the compilers of all variants: CI uses
-`GCC=gcc-14 CLANG=clang-19`, the versions Guix builds releases with, the
-weekly latest-compilers run uses the newest releases, and a local build uses
-the system ones. Single variants can be overridden too, for example
-`make gcc_release_CC=gcc-15`.
+`GCC` and `CLANG` pick the compilers of every build. CI uses `gcc-14` and
+`clang-19`, as Guix does, and `make gcc_release_CC=gcc-15` overrides one build.
+
+`make check` and `make cross` include a selftest: a build that flips the last
+transcript byte, which every target must report.
 
 ## Cross-architecture
 
-Builds for other architectures can't share a process, so `make cross` replays
-the corpus out of process instead. `src/replay.c` runs one build over every
-corpus input and prints a digest of each transcript. It is built statically for
-each entry in `arches.mk` and run under qemu-user or wine, and the digests are
-compared against x86_64. `make fuzz` can also compare inputs with the other
-architectures while fuzzing (see Oracle).
-
-The architectures follow the Guix release targets that run on Linux or Wine:
-32-bit ARM, aarch64, riscv64, big-endian ppc64 and win64, built with GCC 14 as
-Guix does. macOS needs Apple's SDK and has no user-mode emulator, so
-`aarch64_clang` stands in for arm64 macOS: clang 19 with `-mcpu=apple-m1`,
-targeting Linux. ppc64le is also covered, although Guix currently leaves it out
-over build nondeterminism.
-
-```sh
-make docker-cross           # toolchains from ci/Dockerfile; seeds a missing corpus first
-make cross                  # same, with cross toolchains installed locally
-make docker-cross-selftest  # only the cross selftest, see below
-```
-
-To locate a divergence, dump both transcripts and diff them. The static binaries
-also run on the host through its own qemu-user:
+`make cross` (or `make docker-cross`, with the toolchains in `ci/Dockerfile`)
+builds `src/replay.c` statically for each architecture in `arches.mk`, replays
+the corpus under qemu-user or wine and compares transcript digests with x86_64.
+To locate a divergence, diff the transcripts:
 
 ```sh
 diff <(build/docker/cross/x86_64/replay -d ecdsa corpus/ecdsa/<hash>) \
      <(qemu-ppc64 build/docker/cross/ppc64/replay -d ecdsa corpus/ecdsa/<hash>)
 ```
 
-## How it works
-
-`src/variant.c` is one translation unit holding all of libsecp256k1 and the
-targets, so targets can reach static internals. It is compiled once per variant,
-then `objcopy` localizes the libsecp symbols, leaving `diffsecp_variant_<name>`
-as the only global so all variants link into one binary.
-
-A target writes every result it observes (return codes, serialized outputs) to a
-transcript, and `src/fuzz.c` compares the transcripts byte for byte. Targets must
-be deterministic and free of unspecified behavior, or the harness itself will
-report false divergences. Each variant blinds its context with a seed hashed
-from its name, so a result that depends on blinding diverges.
-
-`make selftest` checks the harness itself. It links an extra copy of `guide`
-that flips the last transcript byte and expects every fuzzer to report it, so
-it fails if per-variant flags stop reaching the compiler or the comparison
-misses a byte or a variant. `make check` includes it. `make cross-selftest`
-does the same for the digests: it replays the corpus on the first architecture
-with that byte flipped and expects every target to diverge. `make cross`
-includes it.
-
-## Corpus
-
-`corpus/<target>` is committed. It was grown by coverage-guided fuzzing and
-minimized with `-merge=1`. `make check` replays it through every variant and
-`make cross` on every architecture.
-
-`make fuzz` writes new inputs to `build/new` and reproducers to `build/crashes`,
-and `FUZZ_ARGS` passes libFuzzer flags such as `-fork=8`. Each target mutates
-with `dict/common.dict` plus its own `dict/<target>.dict`, written by
-`dict/gen.py`: boundary values such as p, n and n/2, the inversion inputs that
-need the most safegcd steps, and the scalars at the edges of `ecmult_const` and
-the lambda split. Bugs planted at those values in one variant were found within
-minutes with them and in none of four five-minute runs without, while coverage
-stays the same: the arithmetic is branch-free. `FUZZ_DICT=` turns them off.
-
-`field` and `scalar` also fuzz with libFuzzer's value profile
-(`FUZZ_VALUE_PROFILE`), which keeps inputs that bring a compare's operands
-closer. With the dictionaries it found every planted bug in all four runs, most
-within 20 seconds, at no cost to their coverage. On `ecdsa` and `group` it
-multiplied the corpus and lowered coverage within five minutes, so they fuzz
-without it. `make merge` then adds only the inputs that raise coverage, counting
-value profile for those targets, and skips any that diverge, so the committed
-corpus stays compact. Merging never removes an input, so `make minimize`
-rebuilds each corpus from scratch, dropping the inputs the rest cover, such as
-old ones a target change made redundant. Every one of them also exists per
-target, as in `make fuzz-ecdsa`.
-
-`make coverage` replays the corpus through `guide`'s flags without sanitizers or
-`VERIFY` and writes an llvm-cov report to `build/coverage`: a per-file summary
-in `report.txt` and annotated sources in `html/`. `COVERAGE_VARIANT=guide_int64`
-shows the int64 arithmetic instead.
-
-## Mutants
-
-Coverage can't tell whether the fuzzer fed the values where arithmetic goes
-wrong, such as p, n and (n-1)/2. `mutants/mutants.txt` lists bugs that show only
-at such values. One example is `>=` turned into `>` in the check that rejects
-field elements at least p. Others cover key tweaks that sum to zero or
-infinity or reach the group order, ElligatorSwift's special cases, the
-exceptional cases of point addition, strict DER parsing and serialization,
-scalar addition, negation and reduction, the last step of modular inversion,
-BIP340's checks that R has an even y and is not infinity, ECDSA signing's
-retries, silent payments' group limit, label precedence and key checks, and
-the batches and buckets of multi-point multiplication. `mutants/gen.py` puts all of them into one copy of libsecp, each behind
-a run-time switch. That copy is built twice, as `mutant` on the int128 code and
-`mutant_int64` on the int64 code, so both field and scalar implementations have
-mutants.
-
-After the comparison, `src/fuzz.c` runs each of those builds once with no
-mutant on, which flags the mutants whose values the input reaches. It then runs
-once per flagged mutant not yet killed. A mutant is killed when its transcript
-differs or an API call rejects its arguments. Flagging or killing a new mutant
-counts as coverage, so `make fuzz` keeps the inputs that reach those values and
-`make merge` commits them, where every architecture replays them. It costs
-about 12% of executions on `ecdsa`.
-
-`make mutation-score` replays the corpus and lists each mutant not killed. A
-masked mutant was triggered, so some input made its expression evaluate
-differently, but no transcript changed: the rest of the computation cancelled
-the difference, or nothing recorded it. A missed one was never triggered.
-`DIFFSECP_MUTANTS=off` fuzzes without the mutants, so an evaluation can score a
-run by what didn't steer it.
-
-## Oracle
-
-`ORACLE_ARCHES` compares inputs with other architectures while fuzzing. Each
-listed architecture's static replay build keeps running under its emulator, and
-a fraction `ORACLE_RATE` (default 0.01) of the inputs must give the digest of
-the transcript every x86 build agreed on (`src/oracle.h`):
+The corpus keeps only inputs that raise x86 coverage, so `ORACLE_ARCHES` also
+compares a fraction `ORACLE_RATE` of the inputs while fuzzing:
 
 ```sh
-make docker-cross-replays   # or `make cross-replays` with the cross toolchains
+make docker-cross-replays
 make -j fuzz ORACLE_DIR=build/docker/cross ORACLE_ARCHES='arm aarch64 riscv64 ppc64 ppc64le'
 ```
 
-`make cross` replays only the committed corpus, whose inputs were kept for x86
-coverage, so it never sees a divergence that only an input the fuzzer drops
-would show. With `fe_set_b32_limit` made to accept x = p in the ppc64 build
-alone, replaying the corpus showed nothing, and the oracle reported the
-divergence after two minutes of fuzzing `field`. An input takes 120 to 220 µs
-per architecture under qemu, against 3.8 ms for a `field` input through every
-x86 build. win64 needs wine. `make oracle-selftest` checks that the oracle
-reports a flipped transcript byte.
+## Corpus and mutants
+
+`corpus/<target>` is committed. `make merge` adds only the inputs that raise
+coverage and skips any that diverge. Fuzzing uses the boundary values in `dict/`
+(`FUZZ_DICT=` turns them off), and `field` and `scalar` also use libFuzzer's
+value profile.
+
+Coverage can't tell whether the fuzzer fed the values where arithmetic goes
+wrong, such as p or n. `mutants/mutants.txt` plants bugs that show only at such
+values, and `src/fuzz.c` runs each input through the ones it reaches. Reaching
+or killing a new mutant counts as coverage, so the corpus keeps those inputs.
+`make mutation-score` lists the mutants the corpus doesn't kill: masked ones
+were triggered but changed no transcript, missed ones never were.
 
 ## CI
 
-`.github/workflows/ci.yml` runs `make check`, `make oracle-selftest` and `make
-docker-cross` on pushes to master and on pull requests, so every change replays
-the corpus. `make check` runs in Debian trixie with GCC 14 and clang 19.
+- `ci.yml` runs `make check`, `make oracle-selftest` and `make docker-cross` on
+  pushes and pull requests.
+- `bump-secp256k1.yml` moves `external/secp256k1` to upstream master daily, and
+  fast-forwards master only if CI passes; a failed bump stays on the
+  `bump-secp256k1` branch.
+- `fuzz.yml` fuzzes every target for 30 minutes daily with the oracle, and
+  commits the new corpus and this README's coverage table once CI passes.
+- `latest-compilers.yml` builds with Arch Linux's newest GCC and clang weekly
+  and fuzzes for two hours: distros ship new compilers before Guix does.
 
-`.github/workflows/bump-secp256k1.yml` moves `external/secp256k1` to upstream
-master daily, runs CI on the bump and fast-forwards master to it only if CI
-passes. A failed run leaves the bump on the `bump-secp256k1` branch: upstream
-broke a target or changed behavior against the baseline.
-
-`.github/workflows/fuzz.yml` fuzzes every target for 30 minutes daily, with the
-oracle on every Linux architecture, adds the inputs that raise coverage and
-minimizes the corpus once CI passes on them, and uploads a coverage report. A
-divergence fails the run without printing it, skips that day's corpus update,
-and uploads its reproducer and logs encrypted to the maintainer's PGP key
-(`ci/maintainer.asc`), since artifacts of a public repository are public:
+Reproducers are uploaded encrypted to `ci/maintainer.asc`, since artifacts of a
+public repository are public:
 
 ```sh
 gh run download <run-id> -n reproducers && gpg -d reproducers.tar.gz.gpg | tar -xz
 ```
 
-`.github/workflows/latest-compilers.yml` builds every variant with the newest
-GCC and clang from Arch Linux weekly, then runs `make check` and fuzzes every
-target for two hours: distros ship new compilers long before Guix does, and new
-optimizer bugs show up there first. It never touches the corpus, and uploads
-its reproducers encrypted the same way.
-
 ## Coverage
 
-What the corpus reaches in libsecp, replayed through `guide`'s configuration by
-`make coverage`, without `VERIFY`: its assertions can't fail, so each would
-count a missed branch, and libsecp's own coverage builds leave it out too. The
-daily fuzzing workflow refreshes it with `make readme-coverage`, using clang 19:
-branch counts differ between LLVM versions.
+What the corpus reaches, from `make coverage`: `guide`'s flags without
+sanitizers or `VERIFY`, whose assertions can't fail but would count as missed
+branches. Refreshed daily with clang 19, since branch counts differ between LLVM
+versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
