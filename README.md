@@ -47,8 +47,8 @@ transcript byte.
 | `recovery`       | recoverable ECDSA signing and public key recovery                                                      |
 | `keys`           | seckey and pubkey tweaks, negation, combination, sorting, taproot keypair tweaks, ECDH                 |
 | `musig`          | MuSig2 key aggregation and tweaks, nonces, partial signatures and their aggregation                    |
-| `silentpayments` | BIP352 output creation, labels, prevouts summary and scanning, the recipient group limit               |
-| `ellswift`       | BIP324 ElligatorSwift encoding and decoding, x-only ECDH                                               |
+| `silentpayments` | BIP352 outputs, labels, prevouts summary, scanning, a corrupt label cache, the recipient group limit   |
+| `ellswift`       | BIP324 ElligatorSwift encoding, its inverse for a chosen u, decoding, x-only ECDH                      |
 | `field`          | field arithmetic via a register machine (internal API)                                                 |
 | `scalar`         | scalar arithmetic via a register machine (internal API)                                                |
 | `group`          | point addition, doubling, single and multi-point multiplication via a register machine (internal API)  |
@@ -138,9 +138,9 @@ versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
-libsecp `22245aedf400`: 92.94% of lines, 75.51% of branches, 94.60% of functions.
+libsecp `22245aedf400`: 93.12% of lines, 76.15% of branches, 94.60% of functions.
 
-Mutation score: 68 of 68 mutants killed, 0 masked, 0 missed.
+Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 
 | File | Lines | Branches | Functions |
 |------|------:|---------:|----------:|
@@ -150,7 +150,7 @@ Mutation score: 68 of 68 mutants killed, 0 masked, 0 missed.
 | `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
 | `src/ecmult_const_impl.h` | 100.00% | 84.21% | 100.00% |
 | `src/ecmult_gen_impl.h` | 100.00% | 86.36% | 100.00% |
-| `src/ecmult_impl.h` | 90.58% | 84.19% | 88.00% |
+| `src/ecmult_impl.h` | 92.39% | 87.50% | 88.00% |
 | `src/field_5x52_impl.h` | 97.76% | 100.00% | 96.55% |
 | `src/field_5x52_int128_impl.h` | 100.00% | - | 100.00% |
 | `src/field_impl.h` | 100.00% | 92.31% | 100.00% |
@@ -160,13 +160,13 @@ Mutation score: 68 of 68 mutants killed, 0 masked, 0 missed.
 | `src/int128_native_impl.h` | 60.29% | - | 63.16% |
 | `src/modinv64_impl.h` | 99.31% | 97.83% | 100.00% |
 | `src/modules/ecdh/main_impl.h` | 100.00% | 70.00% | 100.00% |
-| `src/modules/ellswift/main_impl.h` | 99.32% | 66.94% | 100.00% |
+| `src/modules/ellswift/main_impl.h` | 99.32% | 69.35% | 100.00% |
 | `src/modules/extrakeys/main_impl.h` | 92.65% | 62.00% | 100.00% |
 | `src/modules/musig/keyagg_impl.h` | 93.48% | 75.86% | 100.00% |
 | `src/modules/musig/session_impl.h` | 92.13% | 66.36% | 100.00% |
 | `src/modules/recovery/main_impl.h` | 96.00% | 64.58% | 100.00% |
 | `src/modules/schnorrsig/main_impl.h` | 98.84% | 74.14% | 100.00% |
-| `src/modules/silentpayments/main_impl.h` | 89.81% | 70.28% | 100.00% |
+| `src/modules/silentpayments/main_impl.h` | 90.23% | 70.75% | 100.00% |
 | `src/scalar_4x64_impl.h` | 100.00% | 95.83% | 100.00% |
 | `src/scalar_impl.h` | 100.00% | - | 100.00% |
 | `src/scratch_impl.h` | 67.09% | 57.69% | 100.00% |
