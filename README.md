@@ -138,7 +138,7 @@ versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
-libsecp `22245aedf400`: 93.12% of lines, 76.15% of branches, 94.60% of functions.
+libsecp `22245aedf400`: 93.12% of lines, 76.20% of branches, 94.60% of functions.
 
 Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 
@@ -150,7 +150,7 @@ Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 | `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
 | `src/ecmult_const_impl.h` | 100.00% | 84.21% | 100.00% |
 | `src/ecmult_gen_impl.h` | 100.00% | 86.36% | 100.00% |
-| `src/ecmult_impl.h` | 92.39% | 87.50% | 88.00% |
+| `src/ecmult_impl.h` | 92.39% | 87.87% | 88.00% |
 | `src/field_5x52_impl.h` | 97.76% | 100.00% | 96.55% |
 | `src/field_5x52_int128_impl.h` | 100.00% | - | 100.00% |
 | `src/field_impl.h` | 100.00% | 92.31% | 100.00% |
