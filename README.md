@@ -66,9 +66,9 @@ and `objcopy` localizes the libsecp symbols so every build links into one
 binary. A target writes every result it observes to a transcript, and
 `src/fuzz.c` compares the transcripts byte for byte against the first build,
 `guide`, which has coverage, ASan, UBSan and libsecp's `VERIFY` and steers the
-fuzzer. `baseline` builds libsecp v0.8.0, so any behavior change on master shows
-up as a divergence. Targets must be deterministic, or the harness reports false
-divergences.
+fuzzer. `baseline` builds a fixed older libsecp commit, so any behavior change
+on master since then shows up as a divergence. Targets must be deterministic, or
+the harness reports false divergences.
 
 `GCC` and `CLANG` pick the compilers of every build. CI uses `gcc-14` and
 `clang-19`, as Guix does, and `make gcc_release_CC=gcc-15` overrides one build.

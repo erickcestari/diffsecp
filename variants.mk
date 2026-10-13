@@ -51,13 +51,14 @@ clang_release_CFLAGS := $(RELEASE_CFLAGS)
 gcc_release_sha256_CC     := $(GCC)
 gcc_release_sha256_CFLAGS := $(RELEASE_CFLAGS) -DDIFFSECP_SHA256
 
-# libsecp v0.8.0, the oldest release that builds every target, built like
-# gcc_release: any behavior change SECP makes since then shows up as a
-# divergence. It stays put; move it only when a target needs a newer API, and
-# only to a commit that shows no divergence. The define maps internal names
-# renamed since then to their v0.8.0 ones.
+# A fixed libsecp commit built like gcc_release: any behavior change SECP makes
+# since then shows up as a divergence. New harness paths are checked against
+# the changes before it only while it stays put, so move it only when a target
+# needs a newer API or upstream deliberately changes behavior, to the upstream
+# merge that makes the change, once every divergence is traced to it. When SECP
+# renames an internal a target calls, map the new name to the old one with -D.
 baseline_CC     := $(GCC)
-baseline_CFLAGS := $(RELEASE_CFLAGS) -Dsecp256k1_ecmult_const_gej=secp256k1_ecmult_const
+baseline_CFLAGS := $(RELEASE_CFLAGS)
 baseline_SECP   := external/secp256k1-baseline
 
 # Optimizer extremes. -O0 is the closest thing to the source's plain semantics;
