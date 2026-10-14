@@ -138,7 +138,7 @@ versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
-libsecp `22245aedf400`: 93.12% of lines, 76.20% of branches, 94.60% of functions.
+libsecp `04b91ce295da`: 93.12% of lines, 76.18% of branches, 94.60% of functions.
 
 Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 
@@ -166,7 +166,7 @@ Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 | `src/modules/musig/session_impl.h` | 92.13% | 66.36% | 100.00% |
 | `src/modules/recovery/main_impl.h` | 96.00% | 64.58% | 100.00% |
 | `src/modules/schnorrsig/main_impl.h` | 98.84% | 74.14% | 100.00% |
-| `src/modules/silentpayments/main_impl.h` | 90.23% | 70.75% | 100.00% |
+| `src/modules/silentpayments/main_impl.h` | 90.29% | 70.48% | 100.00% |
 | `src/scalar_4x64_impl.h` | 100.00% | 95.83% | 100.00% |
 | `src/scalar_impl.h` | 100.00% | - | 100.00% |
 | `src/scratch_impl.h` | 67.09% | 57.69% | 100.00% |
