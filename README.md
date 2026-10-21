@@ -138,14 +138,13 @@ versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
-libsecp `04b91ce295da`: 93.12% of lines, 76.18% of branches, 94.60% of functions.
+libsecp `e74a0187aac1`: 93.94% of lines, 76.28% of branches, 94.81% of functions.
 
 Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 
 | File | Lines | Branches | Functions |
 |------|------:|---------:|----------:|
 | `contrib/lax_der_parsing.c` | 100.00% | 100.00% | 100.00% |
-| `src/assumptions.h` | 0.00% | - | 0.00% |
 | `src/ecdsa_impl.h` | 100.00% | 99.00% | 100.00% |
 | `src/eckey_impl.h` | 100.00% | 100.00% | 100.00% |
 | `src/ecmult_const_impl.h` | 100.00% | 84.21% | 100.00% |
@@ -154,7 +153,7 @@ Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 | `src/field_5x52_impl.h` | 97.76% | 100.00% | 96.55% |
 | `src/field_5x52_int128_impl.h` | 100.00% | - | 100.00% |
 | `src/field_impl.h` | 100.00% | 92.31% | 100.00% |
-| `src/group_impl.h` | 96.86% | 73.40% | 95.74% |
+| `src/group_impl.h` | 96.86% | 74.09% | 95.74% |
 | `src/hash_impl.h` | 82.41% | 73.33% | 88.89% |
 | `src/hsort_impl.h` | 94.55% | 93.75% | 100.00% |
 | `src/int128_native_impl.h` | 60.29% | - | 63.16% |
