@@ -138,7 +138,7 @@ versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
-libsecp `307035b302eb`: 93.94% of lines, 76.28% of branches, 94.81% of functions.
+libsecp `1b4181f93f7a`: 93.94% of lines, 76.28% of branches, 94.81% of functions.
 
 Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 
