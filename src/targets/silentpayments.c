@@ -310,10 +310,14 @@ static size_t target_silentpayments(const unsigned char *in, size_t len, unsigne
             }
         }
     }
-    /* The library trusts the cache's tweak: one that overflows, or cancels the
-     * output's own tweak, leaves the found output a zero tweak. */
+    /* The library trusts the cache's tweak: one that cancels the output's own
+     * tweak leaves the found output a zero tweak. Since secp#1974 one that
+     * overflows is an illegal argument, so it is reduced. */
     if (label_ok && (si.extra & SP_RAW_TWEAK)) {
-        memcpy(cache.tweak32, si.raw_tweak, sizeof(cache.tweak32));
+        secp256k1_scalar raw_tweak;
+
+        secp256k1_scalar_set_b32(&raw_tweak, si.raw_tweak, NULL);
+        secp256k1_scalar_get_b32(cache.tweak32, &raw_tweak);
     }
     if (si.flags & SP_LABEL_CANCEL) {
         sp_label_cancel(&t, &spend_pk);
