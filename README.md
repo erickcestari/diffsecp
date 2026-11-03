@@ -138,7 +138,7 @@ versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
-libsecp `b88cbc7a65ab`: 93.94% of lines, 76.28% of branches, 94.81% of functions.
+libsecp `a3a5cd45dc61`: 93.87% of lines, 76.18% of branches, 94.81% of functions.
 
 Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 
@@ -150,14 +150,14 @@ Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 | `src/ecmult_const_impl.h` | 100.00% | 84.21% | 100.00% |
 | `src/ecmult_gen_impl.h` | 100.00% | 86.36% | 100.00% |
 | `src/ecmult_impl.h` | 92.39% | 87.87% | 88.00% |
-| `src/field_5x52_impl.h` | 97.76% | 100.00% | 96.55% |
+| `src/field_5x52_impl.h` | 97.12% | 92.86% | 96.55% |
 | `src/field_5x52_int128_impl.h` | 100.00% | - | 100.00% |
 | `src/field_impl.h` | 100.00% | 92.31% | 100.00% |
 | `src/group_impl.h` | 96.86% | 74.09% | 95.74% |
 | `src/hash_impl.h` | 82.41% | 73.33% | 88.89% |
 | `src/hsort_impl.h` | 94.55% | 93.75% | 100.00% |
 | `src/int128_native_impl.h` | 60.29% | - | 63.16% |
-| `src/modinv64_impl.h` | 99.31% | 97.83% | 100.00% |
+| `src/modinv64_impl.h` | 99.07% | 95.65% | 100.00% |
 | `src/modules/ecdh/main_impl.h` | 100.00% | 70.00% | 100.00% |
 | `src/modules/ellswift/main_impl.h` | 99.32% | 69.35% | 100.00% |
 | `src/modules/extrakeys/main_impl.h` | 92.65% | 62.00% | 100.00% |
@@ -165,7 +165,7 @@ Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 | `src/modules/musig/session_impl.h` | 92.13% | 66.36% | 100.00% |
 | `src/modules/recovery/main_impl.h` | 96.00% | 64.58% | 100.00% |
 | `src/modules/schnorrsig/main_impl.h` | 98.84% | 74.14% | 100.00% |
-| `src/modules/silentpayments/main_impl.h` | 90.29% | 70.48% | 100.00% |
+| `src/modules/silentpayments/main_impl.h` | 89.94% | 70.39% | 100.00% |
 | `src/scalar_4x64_impl.h` | 100.00% | 95.83% | 100.00% |
 | `src/scalar_impl.h` | 100.00% | - | 100.00% |
 | `src/scratch_impl.h` | 67.09% | 57.69% | 100.00% |
