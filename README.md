@@ -138,7 +138,7 @@ versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
-libsecp `2e1e6c60e970`: 93.81% of lines, 76.13% of branches, 94.81% of functions.
+libsecp `a0e2e23a71bf`: 93.82% of lines, 76.13% of branches, 94.81% of functions.
 
 Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 
@@ -157,7 +157,7 @@ Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 | `src/hash_impl.h` | 82.41% | 73.33% | 88.89% |
 | `src/hsort_impl.h` | 94.55% | 93.75% | 100.00% |
 | `src/int128_native_impl.h` | 60.29% | - | 63.16% |
-| `src/modinv64_impl.h` | 99.07% | 95.65% | 100.00% |
+| `src/modinv64_impl.h` | 99.08% | 95.65% | 100.00% |
 | `src/modules/ecdh/main_impl.h` | 100.00% | 70.00% | 100.00% |
 | `src/modules/ellswift/main_impl.h` | 99.32% | 69.35% | 100.00% |
 | `src/modules/extrakeys/main_impl.h` | 92.65% | 62.00% | 100.00% |
