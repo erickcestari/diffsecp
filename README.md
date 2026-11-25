@@ -138,7 +138,7 @@ versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
-libsecp `7a4bb01c9ca1`: 93.82% of lines, 76.13% of branches, 94.81% of functions.
+libsecp `8a57566d855d`: 93.81% of lines, 76.03% of branches, 94.81% of functions.
 
 Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 
@@ -170,7 +170,7 @@ Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 | `src/scalar_impl.h` | 100.00% | - | 100.00% |
 | `src/scratch_impl.h` | 67.09% | 57.69% | 100.00% |
 | `src/secp256k1.c` | 95.15% | 65.52% | 100.00% |
-| `src/selftest.h` | 83.33% | 33.33% | 100.00% |
-| `src/util.h` | 61.73% | 90.00% | 65.00% |
+| `src/selftest.h` | 86.67% | 40.00% | 100.00% |
+| `src/util.h` | 58.94% | 83.33% | 63.16% |
 
 <!-- coverage:end -->
