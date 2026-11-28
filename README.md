@@ -138,7 +138,7 @@ versions. `COVERAGE_VARIANT=guide_int64` shows the int64 arithmetic instead.
 
 <!-- coverage:begin -->
 
-libsecp `8a57566d855d`: 93.81% of lines, 76.03% of branches, 94.81% of functions.
+libsecp `e3e7d5c6ea5e`: 93.81% of lines, 76.03% of branches, 94.81% of functions.
 
 Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 
@@ -162,7 +162,7 @@ Mutation score: 70 of 70 mutants killed, 0 masked, 0 missed.
 | `src/modules/ellswift/main_impl.h` | 99.32% | 69.35% | 100.00% |
 | `src/modules/extrakeys/main_impl.h` | 92.65% | 62.00% | 100.00% |
 | `src/modules/musig/keyagg_impl.h` | 93.48% | 75.86% | 100.00% |
-| `src/modules/musig/session_impl.h` | 92.13% | 66.36% | 100.00% |
+| `src/modules/musig/session_impl.h` | 92.14% | 66.36% | 100.00% |
 | `src/modules/recovery/main_impl.h` | 96.00% | 64.58% | 100.00% |
 | `src/modules/schnorrsig/main_impl.h` | 98.84% | 74.14% | 100.00% |
 | `src/modules/silentpayments/main_impl.h` | 89.27% | 70.00% | 100.00% |
